@@ -7,6 +7,9 @@
 Atlas er et AI-assistert geospatialt arbeidsverktøy for kartanalyse og KU-relaterte arbeidsflyter. Løsningen kombinerer et interaktivt kart, autentisert chat, MCP-basert verktøyorkestrering og eksportklare geodata i én samlet applikasjon.
 
 Applikasjonen er bygget rundt en enkel idé: Hjelpe saksbehandlere med KU-analyser. Applikasjonen benytter dokumentbasert kontekst, hvor en AI-assistent kan slå opp data, lese innhold, og benytte MCP-verktøy for å utføre romlige analyser, samt levere resultater.
+<br>
+
+Sjekk ut GitHub Pages for en kort demo fremvisning av applikasjonen: https://kartai.github.io/Atlas/
 
 <br>
 
