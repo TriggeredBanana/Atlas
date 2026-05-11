@@ -92,6 +92,26 @@
       "featured": false
     },
     {
+      "name": "Stedsnavn",
+      "icon": "MapPin",
+      "server": "geo",
+      "category": "Kulturmiljø",
+      "desc": "Slå opp stedsnavn, kommune og fylke fra koordinater via Kartverket",
+      "mcpTool": "geo-reverse_geocode",
+      "featured": false,
+      "hidden": true
+    },
+    {
+      "name": "Stedsnavnsøk",
+      "icon": "Search",
+      "server": "geo",
+      "category": "Kulturmiljø",
+      "desc": "Søk etter stedsnavn og få tilbake koordinater, kommune og fylke",
+      "mcpTool": "geo-forward_geocode",
+      "featured": false,
+      "hidden": true
+    },
+    {
       "name": "Fulltekstsøk",
       "icon": "Search",
       "server": "search",
@@ -166,6 +186,16 @@
       "category": "Kart",
       "desc": "Tegn former, punkter eller linjer direkte på kartet basert på analyseresultater",
       "mcpTool": "map-draw_shape",
+      "featured": false,
+      "hidden": true
+    },
+    {
+      "name": "Hent kartlag",
+      "icon": "MapPinned",
+      "server": "map",
+      "category": "Kart",
+      "desc": "Hent alle lag og markeringer brukeren har tegnet på kartet med eksakte koordinater",
+      "mcpTool": "map-get_drawn_layers",
       "featured": false,
       "hidden": true
     }
