@@ -1,7 +1,7 @@
 """
 Lightweight validation tests for chunker.py.
 
-These tests are self-contained — no database, no Azure, no embeddings API.
+These tests are self-contained -- no database, no Azure, no embeddings API.
 Run with:
   cd backend
   python test_chunker.py
@@ -20,6 +20,7 @@ import textwrap
 from chunker import (
     chunk_document,
     blocks_to_text,
+    _detect_alternative,
     _is_heading,
     _detect_sections,
     _detect_body_font_size,
@@ -90,7 +91,7 @@ def test_short_section_single_chunk():
     # The chunk for section 3.1 should contain the heading text
     ok &= assert_true("heading text in chunk", any("Metode" in c["text"] for c in chunks))
 
-    # Use `or ""` because metadata stores the key with None value when absent —
+    # Use `or ""` because metadata stores the key with None value when absent --
     # .get(key, default) only uses the default when the key is missing, not when None.
     meta_chunks = [c for c in chunks if "3.1" in (c["metadata"].get("section_number") or "")]
     ok &= assert_true("section_number populated", len(meta_chunks) >= 1)
@@ -162,6 +163,17 @@ def test_heading_detection():
     ok &= assert_true("KU keyword heading detected",
         _is_heading({"text": "Verdivurdering", "font_size": 11.0, "is_bold": False}, body_size))
 
+    # Heading-like keyword phrase should still count
+    ok &= assert_true("keyword heading phrase detected",
+        _is_heading({"text": "Sammendrag av eksisterende kunnskap", "font_size": 11.0, "is_bold": False}, body_size))
+
+    # Plain sentence starting with a KU keyword should NOT be promoted to heading
+    ok &= assert_true("keyword-led body sentence not a heading",
+        not _is_heading({"text": "Metode og datagrunnlag er beskrevet nedenfor.", "font_size": 11.0, "is_bold": False}, body_size))
+
+    ok &= assert_true("keyword-led body sentence without punctuation not a heading",
+        not _is_heading({"text": "Metode er beskrevet nedenfor", "font_size": 11.0, "is_bold": False}, body_size))
+
     # Normal body text should NOT be a heading
     ok &= assert_true("normal body text not a heading",
         not _is_heading({"text": "Utredningen viser at tiltaket medfører middels konsekvens.", "font_size": 11.0, "is_bold": False}, body_size))
@@ -174,7 +186,7 @@ def test_heading_detection():
 
 
 # ---------------------------------------------------------------------------
-# Test 4: Metadata — heading_path, alternative, delomrade
+# Test 4: Metadata -- heading_path, alternative, delomrade
 # ---------------------------------------------------------------------------
 
 def test_metadata_fields():
@@ -207,12 +219,32 @@ def test_metadata_fields():
     return ok
 
 
+def test_alternative_detection_does_not_overmatch_normal_words():
+    ok = True
+    ok &= assert_equal(
+        "plain 'alternativ vurdering' does not become alternativ v",
+        _detect_alternative("Alternativ vurdering"),
+        None,
+    )
+    ok &= assert_equal(
+        "embedded phrase does not become alternativ v",
+        _detect_alternative("Vurdering av alternativ virkning"),
+        None,
+    )
+    ok &= assert_equal(
+        "single-letter alternative still matches",
+        _detect_alternative("5.2 Alternativ A"),
+        "alternativ a",
+    )
+    return ok
+
+
 # ---------------------------------------------------------------------------
 # Test 5: Fallback -- no discernible headings -> paragraph chunks
 # ---------------------------------------------------------------------------
 
 def test_fallback_paragraph_chunking():
-    # All blocks are body text — no headings, same small font
+    # All blocks are body text -- no headings, same small font
     blocks = [
         _block("Tiltaket er beskrevet i kapittel 3. " * 20, page=1),
         _block("Metodikken er basert på feltarbeid. " * 20, page=2),
@@ -238,7 +270,7 @@ def test_empty_blocks():
 def test_single_heading_no_body():
     blocks = [_heading_block("1 Innledning", page=1)]
     chunks = chunk_document(blocks, document_name="OnlyHeading", source_blob="heading.pdf")
-    # The document has only 1 named section — below MIN_HEADINGS_FOR_STRUCTURE=2,
+    # The document has only 1 named section -- below MIN_HEADINGS_FOR_STRUCTURE=2,
     # so it falls back to paragraph-based chunking
     return assert_true("single heading document produces at least one chunk", len(chunks) >= 1)
 
@@ -266,7 +298,7 @@ def test_blocks_without_font_metadata():
 def test_blocks_to_text():
     blocks = [
         _block("  Første avsnitt.  "),
-        _block(""),                    # empty — should be skipped
+        _block(""),                    # empty -- should be skipped
         _block("  Andre avsnitt.  "),
     ]
     result = blocks_to_text(blocks)
@@ -306,8 +338,8 @@ def test_chunk_text_non_empty_for_embedding():
         _block("Innhold under oversikt."),
         _heading_block("2 Detaljer"),
         _block("Innhold under detaljer."),
-        _block(""),              # empty block — should not create empty chunk text
-        _block("   "),           # whitespace-only — likewise
+        _block(""),              # empty block -- should not create empty chunk text
+        _block("   "),           # whitespace-only -- likewise
         _heading_block("3 Oppsummering"),
         _block("Siste avsnitt."),
     ]
@@ -399,6 +431,7 @@ def main():
         ("Long section -> parent + children",                 test_long_section_parent_and_children),
         ("Heading detection heuristics",                     test_heading_detection),
         ("Metadata: heading_path, alternative, delomrade",   test_metadata_fields),
+        ("Alternative detection avoids false positives",     test_alternative_detection_does_not_overmatch_normal_words),
         ("Fallback: no headings -> paragraph chunks",         test_fallback_paragraph_chunking),
         ("Edge case: empty blocks",                          test_empty_blocks),
         ("Edge case: single heading no body",                test_single_heading_no_body),

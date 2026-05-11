@@ -1,6 +1,8 @@
 """
 Structure-aware chunking for Norwegian KU (consequence assessment) documents.
 
+
+
 Chunking strategy (two-level)
 ------------------------------
 1. Detect section boundaries via heading detection (font size + bold + numbered
@@ -11,7 +13,7 @@ Chunking strategy (two-level)
 4. If fewer than MIN_HEADINGS_FOR_STRUCTURE headings are found, the pipeline
    falls back to paragraph-based chunking (still respects paragraph boundaries).
 
-Heuristics — marked # TUNE for easy adjustment
+Heuristics -- marked # TUNE for easy adjustment
 ------------------------------------------------
 HEADING_FONT_SIZE_THRESHOLD  Font size above which a block is unconditionally a heading.
 HEADING_BOLD_MAX_CHARS       Max length for a bold block to be treated as a heading.
@@ -22,6 +24,7 @@ MIN_SECTION_CHARS            Sections shorter than this are kept as-is (no split
 MIN_HEADINGS_FOR_STRUCTURE   Min headings required before falling back to paragraph mode.
 """
 
+from collections import Counter
 import logging
 import re
 from typing import Optional
@@ -32,13 +35,13 @@ logger = logging.getLogger(__name__)
 # Tunable constants
 # ---------------------------------------------------------------------------
 
-HEADING_FONT_SIZE_THRESHOLD = 13.0   # TUNE — absolute font-size heading threshold (pt)
-HEADING_BOLD_MAX_CHARS      = 120    # TUNE — bold block shorter than this → heading
-MAX_PARENT_CHARS            = 3000   # TUNE — split sections larger than this
-CHILD_CHUNK_TARGET          = 1200   # TUNE — target size of each child chunk
-CHILD_OVERLAP_CHARS         = 150    # TUNE — overlap between consecutive child chunks
-MIN_SECTION_CHARS           = 80     # TUNE — sections shorter than this are not split
-MIN_HEADINGS_FOR_STRUCTURE  = 2      # TUNE — fallback threshold
+HEADING_FONT_SIZE_THRESHOLD = 13.0   # TUNE -- absolute font-size heading threshold (pt)
+HEADING_BOLD_MAX_CHARS      = 120    # TUNE -- bold block shorter than this -> heading
+MAX_PARENT_CHARS            = 3000   # TUNE -- split sections larger than this
+CHILD_CHUNK_TARGET          = 1200   # TUNE -- target size of each child chunk
+CHILD_OVERLAP_CHARS         = 150    # TUNE -- overlap between consecutive child chunks
+MIN_SECTION_CHARS           = 80     # TUNE -- sections shorter than this are not split
+MIN_HEADINGS_FOR_STRUCTURE  = 2      # TUNE -- fallback threshold
 
 # ---------------------------------------------------------------------------
 # Regex patterns
@@ -56,7 +59,10 @@ _NUMBERED_SECTION_RE = re.compile(
 # (-et, -en) so "nullalternativet" must also match. The leading \b prevents
 # false positives on unrelated words.
 _ALTERNATIVE_RE = re.compile(
-    r'\b(nullalternativ|alternativ\s*\d+[a-z]?|alternativ\s*[a-z])',
+    r'\b('
+    r'nullalternativ(?:et|en)?'
+    r'|alternativ\s*(?:\d+[a-z]?|[a-z])(?![a-zæøå0-9])'
+    r')',
     re.IGNORECASE | re.UNICODE,
 )
 
@@ -84,6 +90,9 @@ _KU_SECTION_KEYWORDS: set[str] = {
     "usikkerhet", "kunnskapsmangler",
     "referanser", "litteratur", "kilder", "vedlegg",
 }
+_KU_KEYWORD_MAX_SUFFIX_CHARS = 25
+_KU_KEYWORD_MAX_WORDS = 6
+_KU_KEYWORD_PREFIX_CONNECTORS = {"av", "for", "og", "om", "-", "\u2013", ":", "("}
 
 # ---------------------------------------------------------------------------
 # Topic classification rules (first match wins)
@@ -120,16 +129,16 @@ def chunk_document(
     """
     Main entry point.
 
-    Takes a list of text blocks (from config.fetch_document_blocks) and returns
+    Takes a list of text blocks (from pdf_extractor.fetch_document_blocks) and returns
     a list of chunk dicts ready for storage and embedding.
 
     Returned chunk dict fields:
-        local_id          int       — sequential ID (temporary, for parent tracking)
-        local_parent_id   int|None  — local_id of parent, None = top-level
+        local_id          int       -- sequential ID (temporary, for parent tracking)
+        local_parent_id   int|None  -- local_id of parent, None = top-level
         chunk_index       int
         text              str
         char_count        int
-        metadata          dict      — all metadata fields (document_name, heading_path, …)
+        metadata          dict      -- all metadata fields (document_name, heading_path, …)
     """
     if not blocks:
         logger.warning("chunk_document: no blocks provided for '%s'", document_name)
@@ -141,7 +150,7 @@ def chunk_document(
     sections = _detect_sections(blocks, body_font_size)
 
     if not sections:
-        logger.info("chunk_document: heading detection weak — using paragraph fallback for '%s'", document_name)
+        logger.info("chunk_document: heading detection weak -- using paragraph fallback for '%s'", document_name)
         return _fallback_paragraph_chunks(blocks, document_name, source_blob, file_type)
 
     return _structure_based_chunks(sections, document_name, source_blob, file_type)
@@ -169,7 +178,6 @@ def _detect_body_font_size(blocks: list[dict]) -> float:
     Used as the baseline for relative heading detection.
     Falls back to 11.0 pt if no font size data is available.
     """
-    from collections import Counter
     sizes = [
         round(block.get("font_size", 0))
         for block in blocks
@@ -183,7 +191,7 @@ def _detect_body_font_size(blocks: list[dict]) -> float:
 def _parse_numbered_heading(text: str) -> Optional[tuple[str, str, int]]:
     """
     If text matches a numbered section heading, return (number, title, depth).
-    Example: "5.1 Alternativ 1" → ("5.1", "Alternativ 1", 2)
+    Example: "5.1 Alternativ 1" -> ("5.1", "Alternativ 1", 2)
     Returns None if text is not a numbered heading.
     """
     n_match = _NUMBERED_SECTION_RE.match(text.strip())
@@ -197,13 +205,29 @@ def _parse_numbered_heading(text: str) -> Optional[tuple[str, str, int]]:
 
 def _is_known_ku_keyword(text: str) -> bool:
     """Return True if text (lowercased, stripped) matches a known KU section keyword."""
-    lower = text.strip().lower()
+    lower = " ".join(text.strip().lower().split())
+    if not lower:
+        return False
     if lower in _KU_SECTION_KEYWORDS:
         return True
-    # Allow "keyword: ..." or "keyword — ..." prefix forms
+
+    # Prefix matching is intentionally conservative. It is meant to keep
+    # heading-like phrases such as "Sammendrag av konsekvens..." or
+    # "Metode og datagrunnlag", but avoid promoting ordinary body sentences
+    # like "Metode og datagrunnlag er beskrevet nedenfor." to headings.
+    if lower.endswith((".", "!", "?")):
+        return False
+    if len(lower.split()) > _KU_KEYWORD_MAX_WORDS:
+        return False
+
     for keyword in _KU_SECTION_KEYWORDS:
-        if lower.startswith(keyword) and len(lower) < len(keyword) + 40:
-            return True
+        if lower.startswith(keyword) and len(lower) <= len(keyword) + _KU_KEYWORD_MAX_SUFFIX_CHARS:
+            suffix = lower[len(keyword):].strip()
+            if not suffix:
+                return True
+            first_token = suffix.split(maxsplit=1)[0]
+            if first_token in _KU_KEYWORD_PREFIX_CONNECTORS:
+                return True
     return False
 
 
@@ -212,7 +236,7 @@ def _is_heading(block: dict, body_font_size: float) -> bool:
     Heuristically decide if a block is a section heading.
 
     Priority order:
-      1. Numbered section pattern (strongest — most reliable in KU documents).
+      1. Numbered section pattern (strongest -- most reliable in KU documents).
       2. Font size >= threshold (absolute or relative to body).
       3. Bold block with short text.
       4. Known Norwegian KU section keyword.
@@ -236,7 +260,7 @@ def _is_heading(block: dict, body_font_size: float) -> bool:
     font_size = block.get("font_size", 0.0)
     is_bold   = block.get("is_bold", False)
 
-    # 2. Large font size (absolute threshold OR > 1.2× body size)
+    # 2. Large font size (absolute threshold OR > 1.2* body size)
     size_threshold = max(HEADING_FONT_SIZE_THRESHOLD, body_font_size * 1.2)
     if font_size >= size_threshold:
         return True
@@ -270,8 +294,8 @@ def _update_heading_stack(
     Example:
         stack = [("5", "Vurdering", 1), ("5.1", "Alt 1", 2)]
         new heading: ("5.2", "Alt 2", 2)
-        → pops ("5.1", "Alt 1", 2), pushes ("5.2", "Alt 2", 2)
-        → stack = [("5", "Vurdering", 1), ("5.2", "Alt 2", 2)]
+        -> pops ("5.1", "Alt 1", 2), pushes ("5.2", "Alt 2", 2)
+        -> stack = [("5", "Vurdering", 1), ("5.2", "Alt 2", 2)]
     """
     while stack and stack[-1][2] >= depth:
         stack.pop()
@@ -282,7 +306,7 @@ def _update_heading_stack(
 def _build_heading_path(stack: list[tuple[str, str, int]]) -> str:
     """
     Render the heading stack as a breadcrumb path string.
-    Example: [("5", "Vurdering", 1), ("5.1", "Alt 1", 2)] → "5 Vurdering > 5.1 Alt 1"
+    Example: [("5", "Vurdering", 1), ("5.1", "Alt 1", 2)] -> "5 Vurdering > 5.1 Alt 1"
     """
     parts = [
         f"{number} {title}".strip() if number else title
@@ -384,13 +408,13 @@ def _detect_sections(blocks: list[dict], body_font_size: float) -> list[dict]:
     Walk all blocks and split them into sections at every detected heading.
 
     Returns a list of section dicts:
-        heading_text    str   — full text of the heading block
-        heading_number  str   — e.g. "5.1" or "" for un-numbered headings
-        heading_title   str   — e.g. "Alternativ 1"
-        heading_depth   int   — 1 = top-level section
+        heading_text    str   -- full text of the heading block
+        heading_number  str   -- e.g. "5.1" or "" for un-numbered headings
+        heading_title   str   -- e.g. "Alternativ 1"
+        heading_depth   int   -- 1 = top-level section
         page_start      int
         page_end        int
-        blocks          list  — content blocks that follow this heading
+        blocks          list  -- content blocks that follow this heading
 
     Returns an empty list if fewer than MIN_HEADINGS_FOR_STRUCTURE headings
     are detected (signals the caller to use paragraph fallback).
@@ -425,7 +449,7 @@ def _detect_sections(blocks: list[dict], body_font_size: float) -> list[dict]:
 
         else:
             if current is None:
-                # Text before any heading — collect in a preamble section
+                # Text before any heading -- collect in a preamble section
                 current = {
                     "heading_text":   "",
                     "heading_number": "",
@@ -450,7 +474,7 @@ def _detect_sections(blocks: list[dict], body_font_size: float) -> list[dict]:
     ]
     if len(named_sections) < MIN_HEADINGS_FOR_STRUCTURE:
         logger.warning(
-            "_detect_sections: only %d named sections found — signalling fallback",
+            "_detect_sections: only %d named sections found -- signalling fallback",
             len(named_sections),
         )
         return []
@@ -505,33 +529,37 @@ def _group_paragraphs_into_children(
     if not paragraphs:
         return []
 
+    _SEP = "\n\n"
+    _SEP_LEN = len(_SEP)
+
     groups: list[str] = []
     current_parts: list[str] = []
     current_len   = 0
     overlap_prefix = ""  # appended to the start of the next group
 
     for para in paragraphs:
-        para_len = len(para)
+        # Account for the separator that will be inserted between paragraphs
+        added_len = len(para) + (_SEP_LEN if current_parts else 0)
 
-        if current_len + para_len > target_size and current_parts:
+        if current_len + added_len > target_size and current_parts:
             # Flush current group
-            joined = "\n\n".join(current_parts)
-            group_text = (overlap_prefix + "\n\n" + joined) if overlap_prefix else joined
+            joined = _SEP.join(current_parts)
+            group_text = (overlap_prefix + _SEP + joined) if overlap_prefix else joined
             groups.append(group_text.strip())
 
             # Compute overlap for the next group
             overlap_prefix = joined[-overlap_chars:] if len(joined) > overlap_chars else joined
 
             current_parts = [para]
-            current_len   = para_len
+            current_len   = len(para)
         else:
             current_parts.append(para)
-            current_len += para_len
+            current_len += added_len
 
     # Flush final group
     if current_parts:
-        joined = "\n\n".join(current_parts)
-        group_text = (overlap_prefix + "\n\n" + joined) if (overlap_prefix and groups) else joined
+        joined = _SEP.join(current_parts)
+        group_text = (overlap_prefix + _SEP + joined) if (overlap_prefix and groups) else joined
         groups.append(group_text.strip())
 
     return [group for group in groups if group.strip()]
@@ -550,8 +578,8 @@ def _structure_based_chunks(
     """
     Build parent and child chunks from a list of detected sections.
 
-    - Short sections (≤ MAX_PARENT_CHARS) → single parent chunk.
-    - Long sections (> MAX_PARENT_CHARS) → one parent chunk (heading + intro para)
+    - Short sections (<= MAX_PARENT_CHARS) -> single parent chunk.
+    - Long sections (> MAX_PARENT_CHARS) -> one parent chunk (heading + intro para)
       followed by N child chunks covering the full section body.
     """
     chunks: list[dict] = []
@@ -649,20 +677,26 @@ def _structure_based_chunks(
             chunk_index += 1
 
             # Child chunks: cover the full section body
+            # Prepend heading context so each child's embedding captures which
+            # section it belongs to (same pattern as parent chunk).
             for group_text in child_groups:
+                child_text = (
+                    f"{heading_prefix}\n\n{group_text}".strip()
+                    if heading_prefix else group_text
+                )
                 chunks.append({
                     "local_id":        local_id,
                     "local_parent_id": parent_local_id,
                     "chunk_index":     chunk_index,
-                    "text":            group_text,
-                    "char_count":      len(group_text),
+                    "text":            child_text,
+                    "char_count":      len(child_text),
                     "metadata":        dict(base_meta),
                 })
                 local_id    += 1
                 chunk_index += 1
 
     logger.info(
-        "chunk_document: '%s' → %d chunks (structure-based, %d sections)",
+        "chunk_document: '%s' -> %d chunks (structure-based, %d sections)",
         document_name, len(chunks), len(sections),
     )
     return chunks
@@ -724,7 +758,7 @@ def _fallback_paragraph_chunks(
         })
 
     logger.info(
-        "chunk_document: '%s' → %d chunks (paragraph fallback)",
+        "chunk_document: '%s' -> %d chunks (paragraph fallback)",
         document_name, len(chunks),
     )
     return chunks
