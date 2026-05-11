@@ -153,7 +153,7 @@ async def get_search_result_chunk(chunk_id: int) -> str:
         return json.dumps({"chunk": chunk}, ensure_ascii=False, default=str)
     except Exception as e:
         logger.exception("get_search_result_chunk failed")
-        return json.dumps({"error": f"Henting av chunk feilet: {e}"}, ensure_ascii=False)
+        return json.dumps({"error": "Kunne ikke hente chunk. Prøv igjen senere."}, ensure_ascii=False)
 
 
 @mcp.tool(annotations={"readOnlyHint": False})

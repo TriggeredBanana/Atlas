@@ -1,9 +1,9 @@
 """
-SearchService — unified search across documents.
+SearchService -- unified search across documents.
 
 Provides four search strategies:
   - search_full_text:  tsvector-based Norwegian full-text search  (active)
-  - search_semantic:   pgvector cosine similarity                 (active — requires embeddings in DB)
+  - search_semantic:   pgvector cosine similarity                 (active -- requires embeddings in DB)
   - search_fuzzy:      pg_trgm trigram similarity                 (active)
   - hybrid_search:     combines all three, tolerates missing backends
 
@@ -62,7 +62,7 @@ async def search_full_text(search_query: str, limit: int = 10) -> list[dict]:
         """,
         {"q": search_query.strip(), "lim": limit},
     )
-    logger.info("search_full_text: query='%s' → %d treff", search_query.strip(), len(rows))
+    logger.info("search_full_text: query='%s' -> %d treff", search_query.strip(), len(rows))
     return _with_snippets(rows)
 
 
@@ -86,13 +86,13 @@ async def search_semantic(search_query: str, limit: int = 10) -> list[dict]:
 
     query_embedding = await _embed_text(search_query.strip())
     if query_embedding is None:
-        logger.info("search_semantic: ingen embedding-modell konfigurert — hopper over")
+        logger.info("search_semantic: ingen embedding-modell konfigurert -- hopper over")
         return []
 
     # Chunk-level semantic search (higher precision)
     chunk_results = await _search_semantic_chunks(query_embedding, search_query.strip(), limit)
 
-    # Document-level fallback — always run so un-chunked documents are covered
+    # Document-level fallback -- always run so un-chunked documents are covered
     doc_results = await _search_semantic_documents(query_embedding, search_query.strip(), limit)
 
     if not chunk_results:
@@ -124,7 +124,7 @@ async def _search_semantic_chunks(
 
     1. Inner query: pure ``ORDER BY embedding <=> query LIMIT k`` so pgvector can
        use the HNSW index for an approximate nearest-neighbor scan over *all*
-       chunks.  k = limit × _ANN_CANDIDATE_FACTOR gives enough headroom that the
+       chunks.  k = limit * _ANN_CANDIDATE_FACTOR gives enough headroom that the
        best chunk per document is very likely included.
 
     2. Middle query: joins the small candidate set with documents, filters by
@@ -174,7 +174,7 @@ async def _search_semantic_chunks(
         """,
         {"emb": json.dumps(query_embedding), "lim": limit, "candidate_lim": candidate_lim},
     )
-    logger.info("search_semantic (chunks): query='%s' → %d treff", search_query, len(rows))
+    logger.info("search_semantic (chunks): query='%s' -> %d treff", search_query, len(rows))
     return _with_snippets(rows)
 
 
@@ -202,7 +202,7 @@ async def _search_semantic_documents(
         """,
         {"emb": json.dumps(query_embedding), "lim": limit},
     )
-    logger.info("search_semantic (documents fallback): query='%s' → %d treff", search_query, len(rows))
+    logger.info("search_semantic (documents fallback): query='%s' -> %d treff", search_query, len(rows))
     return _with_snippets([dict(r) for r in rows])
 
 
@@ -236,7 +236,7 @@ async def search_fuzzy(search_query: str, limit: int = 10) -> list[dict]:
         """,
         {"q": search_query.strip(), "lim": limit},
     )
-    logger.info("search_fuzzy: query='%s' → %d treff", search_query.strip(), len(rows))
+    logger.info("search_fuzzy: query='%s' -> %d treff", search_query.strip(), len(rows))
     return _with_snippets(rows)
 
 
@@ -258,7 +258,7 @@ async def hybrid_search(search_query: str, limit: int = 10) -> list[dict]:
     except Exception as e:
         logger.warning("hybrid_search: fulltekstsøk feilet: %s", e)
 
-    # Semantic search (pgvector — returns empty if no embeddings exist yet)
+    # Semantic search (pgvector -- returns empty if no embeddings exist yet)
     try:
         for doc in await search_semantic(search_query, limit):
             doc_id = doc["id"]
@@ -280,7 +280,7 @@ async def hybrid_search(search_query: str, limit: int = 10) -> list[dict]:
 
     results = sorted(combined.values(), key=lambda d: d.get("score", 0), reverse=True)
     logger.info(
-        "hybrid_search: query='%s' → %d unike treff (fulltext=%d, semantic=%d, fuzzy=%d)",
+        "hybrid_search: query='%s' -> %d unike treff (fulltext=%d, semantic=%d, fuzzy=%d)",
         search_query.strip(),
         len(results),
         sum(1 for d in results if d.get("source") == "fulltext"),

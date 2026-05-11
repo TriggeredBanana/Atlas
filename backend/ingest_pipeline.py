@@ -2,34 +2,34 @@
 Ingest pipeline for PDF documents from Azure Blob Storage.
 
 Pipeline steps per document:
-  1. discover_documents()       — list blobs with metadata from Azure
-  2. claim_document_for_processing() — atomically claim an eligible document row
-  3. extract_blocks()           — fetch PDF and extract structured text blocks (blocking → thread)
-  4. chunk_document()           — split into structure-aware chunks (heading-based, from chunker.py)
-  5. save_indexed_document()    — upsert into documents table (content for full-text search)
-  6. save_chunks()              — embed each chunk via GitHub Models API and insert into chunks table
-  7. generate_embeddings()      — optional document-level fallback embedding when no chunk embeddings exist
-  8. update_index_status()      — set final status
+  1. discover_documents()       -- list blobs with metadata from Azure
+  2. claim_document_for_processing() -- atomically claim an eligible document row
+  3. extract_blocks()           -- fetch PDF and extract structured text blocks (blocking -> thread)
+  4. chunk_document()           -- split into structure-aware chunks (heading-based, from chunker.py)
+  5. save_indexed_document()    -- upsert into documents table (content for full-text search)
+  6. save_chunks()              -- embed each chunk via GitHub Models API and insert into chunks table
+  7. generate_embeddings()      -- optional document-level fallback embedding when no chunk embeddings exist
+  8. update_index_status()      -- set final status
 
 Status model (indexing_status):
-  new        — not yet processed
-  processing — pipeline is actively working on this document;
+  new        -- not yet processed
+  processing -- pipeline is actively working on this document;
                stale rows (>30 min) are reclaimed at next pipeline start
-  ready      — fully indexed: content + semantic search available
+  ready      -- fully indexed: content + semantic search available
                (either all chunk embeddings are available, or a document-level
                fallback embedding was stored when no chunks were produced)
-  partial    — content indexed (full-text/fuzzy OK), but some or all
+  partial    -- content indexed (full-text/fuzzy OK), but some or all
                embeddings failed; automatically retried on next pipeline run
-  failed     — extraction or processing error
+  failed     -- extraction or processing error
 
 Compatibility / fallback helpers kept in this module:
-  extract_text()        — plain text extraction fallback if structured extraction is empty
-  chunk_text()          — fixed-size chunking used only for document-level embedding fallback
-  generate_embeddings() — averaged document embedding used only for document-level fallback
+  extract_text()        -- plain text extraction fallback if structured extraction is empty
+  chunk_text()          -- fixed-size chunking used only for document-level embedding fallback
+  generate_embeddings() -- averaged document embedding used only for document-level fallback
 
 Entry points:
-  run_pipeline(force, retry_failed)  — process all blobs, with concurrency control
-  process_document(blob)             — process a single blob dict
+  run_pipeline(force, retry_failed)  -- process all blobs, with concurrency control
+  process_document(blob)             -- process a single blob dict
 """
 
 import asyncio
@@ -66,7 +66,7 @@ _EMBEDDING_BATCH_SIZE = 50  # TUNE
 async def discover_documents() -> list[dict]:
     """
     List all PDFs in Blob Storage with name, last_modified, and file_hash (etag).
-    Returns a list of dicts — does not write to the database.
+    Returns a list of dicts -- does not write to the database.
     """
     loop = asyncio.get_running_loop()
     blobs = await loop.run_in_executor(None, _list_docs_meta_sync)
@@ -141,7 +141,7 @@ async def extract_text(blob_name: str) -> str:
     t0 = time.perf_counter()
     text = await loop.run_in_executor(None, _fetch_document_sync, blob_name)
     elapsed = time.perf_counter() - t0
-    logger.info("extract_text: '%s' — %.2fs, %d chars", blob_name, elapsed, len(text))
+    logger.info("extract_text: '%s' -- %.2fs, %d chars", blob_name, elapsed, len(text))
     return text
 
 
@@ -162,7 +162,7 @@ async def extract_blocks(blob_name: str) -> list[dict]:
     elapsed = time.perf_counter() - t0
     total_chars = sum(len(b.get("text", "")) for b in blocks)
     logger.info(
-        "extract_blocks: '%s' — %.2fs, %d blocks, %d chars",
+        "extract_blocks: '%s' -- %.2fs, %d blocks, %d chars",
         blob_name, elapsed, len(blocks), total_chars,
     )
     return blocks
@@ -246,7 +246,7 @@ async def generate_embeddings(
     for i in range(dims):
         averaged[i] /= len(vectors)
 
-    logger.info("generate_embeddings: %d chunks → 1 averaged vector (%d dims)", len(chunks), dims)
+    logger.info("generate_embeddings: %d chunks -> 1 averaged vector (%d dims)", len(chunks), dims)
     return averaged
 
 
@@ -302,7 +302,7 @@ async def save_indexed_document(
     )
     elapsed = time.perf_counter() - t0
     doc_id = rows[0]["id"] if rows else None
-    logger.info("save_indexed_document: '%s' → id=%s, embedding=%s (%.2fs)",
+    logger.info("save_indexed_document: '%s' -> id=%s, embedding=%s (%.2fs)",
                 blob_name, doc_id, "yes" if embeddings else "no", elapsed)
     return doc_id
 
@@ -331,7 +331,7 @@ async def refresh_processing_lease(blob_name: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Embedding cache — avoid re-embedding unchanged chunk text
+# Embedding cache -- avoid re-embedding unchanged chunk text
 # ---------------------------------------------------------------------------
 
 def _text_hash(text: str) -> str:
@@ -342,7 +342,7 @@ def _text_hash(text: str) -> str:
 async def _prefetch_embedding_cache(document_id: int) -> dict[str, list[float]]:
     """
     Fetch existing chunk embeddings for a document and return a
-    text_hash → embedding_vector mapping.
+    text_hash -> embedding_vector mapping.
 
     Called *before* DELETE so we can reuse embeddings for chunks whose
     text content hasn't changed during a re-index, saving API calls.
@@ -360,7 +360,7 @@ async def _prefetch_embedding_cache(document_id: int) -> dict[str, list[float]]:
     try:
         from embedding_client import _dimensions as _current_dims
     except Exception:
-        _current_dims = 0  # unknown — skip dimension validation
+        _current_dims = 0  # unknown -- skip dimension validation
 
     cache: dict[str, list[float]] = {}
     for row in rows:
@@ -392,7 +392,7 @@ async def _prefetch_embedding_cache(document_id: int) -> dict[str, list[float]]:
             cache[_text_hash(text)] = emb
     if cache:
         logger.info(
-            "_prefetch_embedding_cache: doc_id=%s → %d cached embeddings",
+            "_prefetch_embedding_cache: doc_id=%s -> %d cached embeddings",
             document_id, len(cache),
         )
     return cache
@@ -416,7 +416,7 @@ async def save_chunks(
       2. In a single transaction:
          a. DELETE existing chunks for this document (clean slate on re-index).
          b. INSERT parent chunks (local_parent_id = None), recording their DB IDs.
-         c. INSERT child chunks, resolving local_parent_id → real DB id.
+         c. INSERT child chunks, resolving local_parent_id -> real DB id.
 
     Returns (total_inserted, embedded_count).
     Embedding failures are non-fatal: affected chunks are stored without a vector.
@@ -434,7 +434,7 @@ async def save_chunks(
                         {"doc_id": document_id},
                     )
         logger.info(
-            "save_chunks: document_id=%s → cleared existing chunks; no new chunks to save",
+            "save_chunks: document_id=%s -> cleared existing chunks; no new chunks to save",
             document_id,
         )
         return (0, 0)
@@ -442,7 +442,7 @@ async def save_chunks(
     # --- Pre-fetch existing embeddings to avoid redundant API calls on re-index ---
     emb_cache = await _prefetch_embedding_cache(document_id)
 
-    # --- Step 1: generate embeddings in batches (outside transaction — external API) ---
+    # --- Step 1: generate embeddings in batches (outside transaction -- external API) ---
     texts       = [c["text"] for c in chunks]
     all_vectors: list[list[float] | None] = []
 
@@ -455,12 +455,12 @@ async def save_chunks(
             all_vectors.append(cached)
             cache_hits += 1
         else:
-            all_vectors.append(None)  # placeholder — filled below
+            all_vectors.append(None)  # placeholder -- filled below
             uncached_indices.append(i)
 
     if cache_hits:
         logger.info(
-            "save_chunks: doc_id=%s — %d/%d embeddings reused from cache",
+            "save_chunks: doc_id=%s -- %d/%d embeddings reused from cache",
             document_id, cache_hits, len(texts),
         )
 
@@ -477,7 +477,7 @@ async def save_chunks(
                     new_vectors.extend(batch_vectors)
                 except Exception as e:
                     logger.warning(
-                        "save_chunks: embedding batch %d–%d failed for doc %s: %s",
+                        "save_chunks: embedding batch %d-%d failed for doc %s: %s",
                         batch_start, batch_start + len(batch) - 1, document_id, e,
                     )
                     new_vectors.extend([None] * len(batch))
@@ -489,20 +489,20 @@ async def save_chunks(
                 if vec_idx < len(new_vectors):
                     all_vectors[orig_idx] = new_vectors[vec_idx]
         except ValueError as e:
-            # No embedding provider configured — store chunks without embeddings
-            logger.warning("save_chunks: %s — storing chunks without embeddings", e)
+            # No embedding provider configured -- store chunks without embeddings
+            logger.warning("save_chunks: %s -- storing chunks without embeddings", e)
 
     # Guard: ensure vector list length matches chunk list length
     if len(all_vectors) != len(chunks):
         logger.warning(
-            "save_chunks: vector count mismatch (%d vectors for %d chunks) — padding with None",
+            "save_chunks: vector count mismatch (%d vectors for %d chunks) -- padding with None",
             len(all_vectors), len(chunks),
         )
         all_vectors = (all_vectors + [None] * len(chunks))[:len(chunks)]
 
     embedded_count = sum(1 for v in all_vectors if v is not None)
 
-    # Build a lookup: local_id → (chunk dict, embedding vector)
+    # Build a lookup: local_id -> (chunk dict, embedding vector)
     local_id_map: dict[int, tuple[dict, list[float] | None]] = {
         c["local_id"]: (c, all_vectors[i])
         for i, c in enumerate(chunks)
@@ -537,7 +537,7 @@ async def save_chunks(
                     if parent_db_id is None:
                         raise RuntimeError(
                             f"save_chunks: parent local_id={chunk['local_parent_id']!r} "
-                            f"not found in id map for doc {document_id} — "
+                            f"not found in id map for doc {document_id} -- "
                             "parent INSERT may have silently returned no row"
                         )
                     await _insert_chunk(
@@ -550,7 +550,7 @@ async def save_chunks(
 
     total = len(parent_chunks) + len(child_chunks)
     logger.info(
-        "save_chunks: document_id=%s → %d chunks saved (%d with embeddings)",
+        "save_chunks: document_id=%s -> %d chunks saved (%d with embeddings)",
         document_id, total, embedded_count,
     )
     return (total, embedded_count)
@@ -607,7 +607,7 @@ async def _insert_chunk(
     if row is None:
         raise RuntimeError(
             f"_insert_chunk: INSERT returned no row for document_id={document_id} "
-            f"chunk_index={chunk['chunk_index']} — unexpected empty RETURNING result"
+            f"chunk_index={chunk['chunk_index']} -- unexpected empty RETURNING result"
         )
     return row["id"]
 
@@ -665,7 +665,7 @@ async def process_document(blob: dict, retry_failed: bool = True) -> dict:
         t0 = time.perf_counter()
         raw_chunks = chunk_document(blocks, document_name=title, source_blob=blob_name)
         logger.info(
-            "chunk_document: '%s' → %d chunks (%.3fs)",
+            "chunk_document: '%s' -> %d chunks (%.3fs)",
             blob_name, len(raw_chunks), time.perf_counter() - t0,
         )
 
@@ -673,7 +673,7 @@ async def process_document(blob: dict, retry_failed: bool = True) -> dict:
         # to plain text extraction so we don't silently index an empty document.
         if not content.strip() and not raw_chunks:
             logger.warning(
-                "process_document: structured extraction empty for '%s' — falling back to extract_text()",
+                "process_document: structured extraction empty for '%s' -- falling back to extract_text()",
                 blob_name,
             )
             content = await extract_text(blob_name)
@@ -681,11 +681,11 @@ async def process_document(blob: dict, retry_failed: bool = True) -> dict:
                 await update_index_status(blob_name, "failed", error="No extractable text")
                 return {"status": "error", "blob": blob_name, "error": "No extractable text"}
             # Re-chunk is not attempted; content will serve full-text/fuzzy search.
-            # Chunks stay empty — semantic search falls back to document-level embedding.
+            # Chunks stay empty -- semantic search falls back to document-level embedding.
 
-        # Step 5: save document row — keep status='processing' until chunks
+        # Step 5: save document row -- keep status='processing' until chunks
         # are fully written so a crash here doesn't leave a 'ready' doc with
-        # missing chunks (no document-level embedding — semantic search now
+        # missing chunks (no document-level embedding -- semantic search now
         # uses per-chunk embeddings stored in the chunks table)
         doc_id = await save_indexed_document(
             blob_name=blob_name,
@@ -705,7 +705,7 @@ async def process_document(blob: dict, retry_failed: bool = True) -> dict:
             lease_blob_name=blob_name,
         )
         logger.info(
-            "save_chunks: '%s' → %d chunks saved, %d with embeddings (%.3fs)",
+            "save_chunks: '%s' -> %d chunks saved, %d with embeddings (%.3fs)",
             blob_name, chunk_count, embedded_count, time.perf_counter() - t0,
         )
 
@@ -716,7 +716,7 @@ async def process_document(blob: dict, retry_failed: bool = True) -> dict:
         has_any_embedding = embedded_count > 0
         if embedded_count == 0 and content.strip():
             logger.warning(
-                "process_document: no chunk embeddings for '%s' — attempting document-level fallback",
+                "process_document: no chunk embeddings for '%s' -- attempting document-level fallback",
                 blob_name,
             )
             doc_embedding = await generate_embeddings(
@@ -733,7 +733,7 @@ async def process_document(blob: dict, retry_failed: bool = True) -> dict:
             else:
                 logger.warning(
                     "process_document: document-level embedding also failed for '%s' "
-                    "— semantic search unavailable until re-index with working embeddings",
+                    "-- semantic search unavailable until re-index with working embeddings",
                     blob_name,
                 )
             await refresh_processing_lease(blob_name)
@@ -743,7 +743,7 @@ async def process_document(blob: dict, retry_failed: bool = True) -> dict:
         #             (all chunk embeddings available, or document-level
         #             fallback embedding when no chunks were produced)
         # 'partial' = content indexed for full-text/fuzzy, but some or all
-        #             embeddings missing → automatically retried on next run
+        #             embeddings missing -> automatically retried on next run
         ready_with_document_fallback = (chunk_count == 0 and has_any_embedding)
         if all_chunks_embedded or ready_with_document_fallback:
             await update_index_status(blob_name, "ready")
@@ -757,7 +757,7 @@ async def process_document(blob: dict, retry_failed: bool = True) -> dict:
         elif has_any_embedding:
             await update_index_status(blob_name, "partial")
             logger.warning(
-                "process_document: '%s' set to 'partial' — %d/%d chunk embeddings succeeded; "
+                "process_document: '%s' set to 'partial' -- %d/%d chunk embeddings succeeded; "
                 "retrying missing embeddings on next pipeline run",
                 blob_name, embedded_count, chunk_count,
             )
@@ -765,7 +765,7 @@ async def process_document(blob: dict, retry_failed: bool = True) -> dict:
         else:
             await update_index_status(blob_name, "partial")
             logger.warning(
-                "process_document: '%s' set to 'partial' — full-text/fuzzy OK, "
+                "process_document: '%s' set to 'partial' -- full-text/fuzzy OK, "
                 "semantic search unavailable until embeddings succeed",
                 blob_name,
             )
@@ -793,7 +793,7 @@ async def run_pipeline(force: bool = False, retry_failed: bool = True) -> dict:
     """
     t_total = time.perf_counter()
 
-    # Reclaim stale processing rows — documents stuck in 'processing' from a
+    # Reclaim stale processing rows -- documents stuck in 'processing' from a
     # previous crashed or killed worker.  Reset them to 'new' so they are
     # re-evaluated and re-indexed on this run.
     stale = await query(
@@ -844,7 +844,7 @@ async def run_pipeline(force: bool = False, retry_failed: bool = True) -> dict:
 
     elapsed = time.perf_counter() - t_total
     logger.info(
-        "run_pipeline: done in %.2fs — %d indexed, %d partial, %d skipped, %d failed",
+        "run_pipeline: done in %.2fs -- %d indexed, %d partial, %d skipped, %d failed",
         elapsed, len(ok), len(partial), len(skipped), len(failed),
     )
 

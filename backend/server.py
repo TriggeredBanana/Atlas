@@ -3,12 +3,12 @@ Main Starlette application.
 
 Mounts MCP servers alongside the existing REST API:
 
-  /mcp/db/mcp      — Database tools  (list_tables, describe_table, get_schema_overview, explain_query, query_database)
-  /mcp/geo/mcp     — Geo tools       (list_kommuner, list_vernetyper, buffer_search)
-  /mcp/docs/mcp    — Document tools  (list_documents, fetch_document)
-  /mcp/vector/mcp  — Vector tools    (buffer, intersection, envelope, get_coordinates, point_in_polygon, get_verdensarv_sites, voronoi)
-  /mcp/map/mcp     — Map tools       (draw_shape)
-  /mcp/search/mcp  — Search tools    (search_documents, search_documents_fuzzy, search_documents_semantic, search_hybrid, get_search_result_chunk, index_*, get_indexing_status)
+  /mcp/db/mcp      -- Database tools  (list_tables, describe_table, get_schema_overview, explain_query, query_database)
+  /mcp/geo/mcp     -- Geo tools       (list_kommuner, list_vernetyper, buffer_search)
+  /mcp/docs/mcp    -- Document tools  (list_documents, fetch_document)
+  /mcp/vector/mcp  -- Vector tools    (buffer, intersection, envelope, get_coordinates, point_in_polygon, get_verdensarv_sites, voronoi)
+  /mcp/map/mcp     -- Map tools       (draw_shape)
+  /mcp/search/mcp  -- Search tools    (search_documents, search_documents_fuzzy, search_documents_semantic, search_hybrid, get_search_result_chunk, index_*, get_indexing_status)
 
 Auth endpoints:
   POST /api/auth/register
@@ -24,10 +24,10 @@ Chat management endpoints:
   DELETE /api/chats/{chat_id}
 
 AI orchestration:
-  POST /api/chat                 — Send a message; persists to DB, returns AI reply
-  GET  /api/documents            — Azure document list
-  GET  /api/search               — Quick test endpoint for document search
-  GET  /api/search/chunks/{id}   — Fetch full text behind a semantic search hit
+  POST /api/chat                 -- Send a message; persists to DB, returns AI reply
+  GET  /api/documents            -- Azure document list
+  GET  /api/search               -- Quick test endpoint for document search
+  GET  /api/search/chunks/{id}   -- Fetch full text behind a semantic search hit
 """
 
 import asyncio
@@ -303,17 +303,17 @@ async def _stream_chat(copilot_session, message, map_context, chat_id, user_id, 
     Async generator that yields SSE events for a streaming chat response.
 
     Event types:
-      event: meta       — { chat_id }
-      event: thinking   — { content: "delta..." }
-      event: delta      — { content: "delta..." }
-      event: done       — { content, map_actions, usage }
-      event: error      — { error: "..." }
+      event: meta       -- { chat_id }
+      event: thinking   -- { content: "delta..." }
+      event: delta      -- { content: "delta..." }
+      event: done       -- { content, map_actions, usage }
+      event: error      -- { error: "..." }
     """
 
     # Immediately tell the client which chat_id to use
     yield f"event: meta\ndata: {json.dumps({'chat_id': chat_id})}\n\n"
 
-    # Holdback buffer size — chars withheld from the client until the next
+    # Holdback buffer size -- chars withheld from the client until the next
     # chunk (or final flush) so that patterns split across chunk boundaries
     # are never partially emitted before the sanitizer can recognise them.
     _THINKING_HOLDBACK = 128
@@ -376,7 +376,7 @@ async def _stream_chat(copilot_session, message, map_context, chat_id, user_id, 
                 map_actions = chunk["map_actions"]
 
     except asyncio.CancelledError:
-        # Client disconnected — clean up silently.
+        # Client disconnected -- clean up silently.
         tracker.finalise_turn()
         logger.info("Stream cancelled (client disconnect) for chat %s", chat_id)
         return
@@ -401,7 +401,7 @@ async def _stream_chat(copilot_session, message, map_context, chat_id, user_id, 
     turn_usage = tracker.finalise_turn()
     usage_snapshot = tracker.snapshot(turn_usage)
 
-    # Re-sanitize the full thinking text for persistent storage — ensures
+    # Re-sanitize the full thinking text for persistent storage -- ensures
     # patterns split across streaming chunks are properly redacted at rest.
     thinking_text = (
         _finalize_thinking_text(raw_thinking, truncated=thinking_truncated)
@@ -579,7 +579,7 @@ async def test_search_chunk(request: Request):
 
 app = Starlette(
     routes=[
-        # MCP servers — each accessible at /mcp/<name>/mcp
+        # MCP servers -- each accessible at /mcp/<name>/mcp
         Mount("/mcp/db",     app=db_app),
         Mount("/mcp/geo",    app=geo_app),
         Mount("/mcp/docs",   app=docs_app),

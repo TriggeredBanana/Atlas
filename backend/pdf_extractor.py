@@ -68,8 +68,8 @@ def _looks_like_headingish_edge_block(block_text: str, font_size: float, is_bold
         return True
     if _is_known_ku_keyword(text):
         return True
-    # Bold+short is intentionally omitted here — unlike the chunker (which
-    # accepts bold blocks ≤ 120 chars as headings), edge blocks in the
+    # Bold+short is intentionally omitted here -- unlike the chunker (which
+    # accepts bold blocks <= 120 chars as headings), edge blocks in the
     # top/bottom 7 % of pages include too many bold running headers/footers.
     # The remaining checks (size, numbering, alternative, keyword) are
     # sufficient for genuine headings near page edges.

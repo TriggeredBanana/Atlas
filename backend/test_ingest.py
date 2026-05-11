@@ -379,9 +379,20 @@ def test_zero_embeddings_with_doc_fallback_sets_partial():
         save_chunks_returns=(3, 0),
         generate_emb_returns=[0.1] * 10,  # doc-level fallback succeeds
     )
-    # has_any_embedding=True but all_chunks_embedded=False → partial
-    assert_equal("doc-fallback embed → result partial", result["status"], "partial")
-    assert_equal("doc-fallback embed → indexing_status=partial", mock_uis.call_args.args[1], "partial")
+    # has_any_embedding=True but all_chunks_embedded=False -> partial
+    assert_equal("doc-fallback embed -> result partial", result["status"], "partial")
+    assert_equal("doc-fallback embed -> indexing_status=partial", mock_update_index_status.call_args.args[1], "partial")
+
+
+def test_zero_chunks_with_doc_fallback_sets_ready():
+    """Zero chunks produced + doc-level embedding succeeds -> indexing_status=ready, result=ok."""
+    result, mock_update_index_status = _run_process(
+        chunks=[],
+        save_chunks_returns=(0, 0),
+        generate_emb_returns=[0.1] * 10,  # doc-level fallback succeeds
+    )
+    assert_equal("zero chunks + fallback -> result ok", result["status"], "ok")
+    assert_equal("zero chunks + fallback -> indexing_status=ready", mock_update_index_status.call_args.args[1], "ready")
 
 
 def test_extraction_error_sets_failed():
@@ -397,8 +408,8 @@ def test_single_chunk_fully_embedded_is_ready():
         chunks=_fake_chunks(1),
         save_chunks_returns=(1, 1),
     )
-    assert_equal("1 chunk fully embedded → ok", result["status"], "ok")
-    assert_equal("1 chunk fully embedded → ready", mock_uis.call_args.args[1], "ready")
+    assert_equal("1 chunk fully embedded -> ok", result["status"], "ok")
+    assert_equal("1 chunk fully embedded -> ready", mock_update_index_status.call_args.args[1], "ready")
 
 
 # ===========================================================================
@@ -453,10 +464,14 @@ def test_semantic_chunk_search_uses_candidate_first_vector_order():
             mock_q.return_value = []
             await search_service._search_semantic_chunks([0.1] * 10, "regelverk", 10)
             sql, params = mock_q.call_args.args
-            assert_in("semantic chunk search uses candidate CTE", "WITH nearest_chunks AS", sql)
+            assert_in(
+                "semantic chunk search deduplicates per document",
+                "DISTINCT ON (d.id)",
+                sql,
+            )
             assert_in(
                 "semantic chunk search orders candidates by vector distance",
-                "ORDER BY c.embedding <=> %(emb)s::vector",
+                "ORDER BY embedding <=> %(emb)s::vector",
                 sql,
             )
             assert_in("semantic chunk search limits candidate set", "LIMIT %(candidate_lim)s", sql)
@@ -464,8 +479,8 @@ def test_semantic_chunk_search_uses_candidate_first_vector_order():
                 "semantic chunk candidate limit uses configured heuristic",
                 params["candidate_lim"],
                 max(
-                    10 * search_service._SEMANTIC_CHUNK_CANDIDATE_MULTIPLIER,
-                    search_service._SEMANTIC_CHUNK_MIN_CANDIDATES,
+                    10 * search_service._ANN_CANDIDATE_FACTOR,
+                    search_service._ANN_MIN_CANDIDATES,
                 ),
             )
 
@@ -489,10 +504,13 @@ def test_semantic_chunk_search_truncates_content():
     async def go():
         long_content = "x" * (search_service._SNIPPET_LENGTH + 25)
         with patch.object(search_service, "query", new_callable=AsyncMock) as mock_q:
-            mock_q.return_value = []
-            await search_service._search_semantic_documents([0.1] * 10, "regelverk", 10)
-            captured_sql = mock_query.call_args.args[0]
-            assert_in("semantic doc fallback filters by status", _STATUS_FILTER, captured_sql)
+            mock_q.return_value = [{"content": long_content, "id": 1, "title": "doc"}]
+            results = await search_service._search_semantic_chunks([0.1] * 10, "regelverk", 10)
+            assert_equal(
+                "chunk search truncates content to snippet length",
+                results[0]["content"],
+                "x" * search_service._SNIPPET_LENGTH + "\u2026",
+            )
 
     asyncio.run(go())
 
