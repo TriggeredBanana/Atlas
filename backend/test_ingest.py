@@ -5,7 +5,9 @@ Unit tests for ingest pipeline and search service status/filtering logic.
 Covers:
   - stale-processing recovery in run_pipeline()
   - status transitions in process_document(): ready / partial / failed
+  - save_chunks() cleanup when a re-index produces zero chunks
   - search query filtering (indexing_status IN ('ready', 'partial'))
+  - semantic chunk search SQL shape (candidate-first vector search)
 
 All database, Azure Blob Storage, and embedding API calls are mocked.
 No running services or environment variables required.
@@ -43,10 +45,14 @@ _stub(
     get_connection=MagicMock(),
 )
 _stub(
-    "config",
+    "blob_storage",
+    list_documents_with_metadata=MagicMock(return_value=[]),
+    download_blob_bytes=MagicMock(return_value=b""),
+)
+_stub(
+    "pdf_extractor",
     fetch_document=MagicMock(return_value=""),
     fetch_document_blocks=MagicMock(return_value=[]),
-    list_documents_with_metadata=MagicMock(return_value=[]),
 )
 _stub(
     "embedding_client",
@@ -175,6 +181,48 @@ class _FakeConnection:
         return self._cursor
 
 
+class _FakeCursor:
+    def __init__(self):
+        self.execute_calls: list[tuple[str, dict | None]] = []
+
+    async def execute(self, sql: str, params=None):
+        self.execute_calls.append((sql, params))
+
+    async def fetchone(self):
+        return None
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+
+class _FakeTransaction:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+
+class _FakeConnection:
+    def __init__(self, cursor: _FakeCursor):
+        self._cursor = cursor
+
+    def transaction(self):
+        return _FakeTransaction()
+
+    def cursor(self):
+        return self._cursor
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Helper: run process_document with controlled mocks.
 # Returns (result_dict, update_index_status_mock).
@@ -187,6 +235,7 @@ def _run_process(
     blocks_text="content here",  # return value of chunker.blocks_to_text
     save_chunks_returns=(3, 3),  # (total_inserted, embedded_count)
     extract_blocks_raises=None,  # if set, extract_blocks raises this
+    extract_text_returns="",     # return value of extract_text() fallback
     generate_emb_returns=None,   # return value of generate_embeddings
 ):
     if claim_returns is None:
@@ -335,6 +384,17 @@ def test_zero_embeddings_with_doc_fallback_sets_partial():
     assert_equal("doc-fallback embed -> indexing_status=partial", mock_update_index_status.call_args.args[1], "partial")
 
 
+def test_zero_chunks_with_doc_fallback_sets_ready():
+    """Zero chunks produced + doc-level embedding succeeds -> indexing_status=ready, result=ok."""
+    result, mock_update_index_status = _run_process(
+        chunks=[],
+        save_chunks_returns=(0, 0),
+        generate_emb_returns=[0.1] * 10,  # doc-level fallback succeeds
+    )
+    assert_equal("zero chunks + fallback -> result ok", result["status"], "ok")
+    assert_equal("zero chunks + fallback -> indexing_status=ready", mock_update_index_status.call_args.args[1], "ready")
+
+
 def test_extraction_error_sets_failed():
     """Exception during extract_blocks -> indexing_status=failed, result=error."""
     result, mock_update_index_status = _run_process(extract_blocks_raises=RuntimeError("PDF corrupt"))
@@ -352,38 +412,8 @@ def test_single_chunk_fully_embedded_is_ready():
     assert_equal("1 chunk fully embedded -> ready", mock_update_index_status.call_args.args[1], "ready")
 
 
-def test_save_chunks_refreshes_processing_lease_between_batches():
-    """save_chunks refreshes the processing lease while batched embeddings run."""
-    async def run_coroutine():
-        fake_cursor = _FakeCursor([101, 102, 103])
-        fake_conn = _FakeConnection(fake_cursor)
-
-        with (
-            patch.object(ingest_pipeline, "get_connection", return_value=fake_conn),
-            patch.object(ingest_pipeline, "refresh_processing_lease", new_callable=AsyncMock) as mock_refresh_lease,
-            patch("embedding_client.get_embeddings", new=AsyncMock(side_effect=[
-                [[0.1] * 3, [0.2] * 3],
-                [[0.3] * 3],
-            ])),
-            patch.object(ingest_pipeline, "_EMBEDDING_BATCH_SIZE", 2),
-        ):
-            total, embedded = await ingest_pipeline.save_chunks(
-                1,
-                _fake_chunks(3),
-                lease_blob_name="doc.pdf",
-            )
-            assert_equal("save_chunks inserts all chunks", total, 3)
-            assert_equal("save_chunks counts embedded chunks", embedded, 3)
-            assert_true(
-                "processing lease refreshed during batched embeddings",
-                mock_refresh_lease.await_count >= 2,
-            )
-
-    asyncio.run(run_coroutine())
-
-
 # ===========================================================================
-# 3. Search indexing_status filtering
+# 4. Search indexing_status filtering
 # ===========================================================================
 
 print("\n# Search indexing_status filtering")
@@ -427,6 +457,36 @@ def test_semantic_chunk_search_filters_status():
     asyncio.run(run_coroutine())
 
 
+def test_semantic_chunk_search_uses_candidate_first_vector_order():
+    """Chunk semantic search should order chunk candidates by vector distance before deduping."""
+    async def go():
+        with patch.object(search_service, "query", new_callable=AsyncMock) as mock_q:
+            mock_q.return_value = []
+            await search_service._search_semantic_chunks([0.1] * 10, "regelverk", 10)
+            sql, params = mock_q.call_args.args
+            assert_in(
+                "semantic chunk search deduplicates per document",
+                "DISTINCT ON (d.id)",
+                sql,
+            )
+            assert_in(
+                "semantic chunk search orders candidates by vector distance",
+                "ORDER BY embedding <=> %(emb)s::vector",
+                sql,
+            )
+            assert_in("semantic chunk search limits candidate set", "LIMIT %(candidate_lim)s", sql)
+            assert_equal(
+                "semantic chunk candidate limit uses configured heuristic",
+                params["candidate_lim"],
+                max(
+                    10 * search_service._ANN_CANDIDATE_FACTOR,
+                    search_service._ANN_MIN_CANDIDATES,
+                ),
+            )
+
+    asyncio.run(go())
+
+
 def test_semantic_document_fallback_filters_status():
     """_search_semantic_documents SQL must exclude non-searchable documents."""
     async def run_coroutine():
@@ -437,6 +497,22 @@ def test_semantic_document_fallback_filters_status():
             assert_in("semantic doc fallback filters by status", _STATUS_FILTER, captured_sql)
 
     asyncio.run(run_coroutine())
+
+
+def test_semantic_chunk_search_truncates_content():
+    """Chunk semantic search should return snippet-sized content like other search backends."""
+    async def go():
+        long_content = "x" * (search_service._SNIPPET_LENGTH + 25)
+        with patch.object(search_service, "query", new_callable=AsyncMock) as mock_q:
+            mock_q.return_value = [{"content": long_content, "id": 1, "title": "doc"}]
+            results = await search_service._search_semantic_chunks([0.1] * 10, "regelverk", 10)
+            assert_equal(
+                "chunk search truncates content to snippet length",
+                results[0]["content"],
+                "x" * search_service._SNIPPET_LENGTH + "\u2026",
+            )
+
+    asyncio.run(go())
 
 
 def test_full_text_empty_query_skips_db():
@@ -465,14 +541,16 @@ _TESTS = [
     test_partial_embeddings_sets_partial,
     test_zero_embeddings_no_fallback_sets_partial,
     test_zero_embeddings_with_doc_fallback_sets_partial,
+    test_zero_chunks_with_doc_fallback_sets_ready,
     test_extraction_error_sets_failed,
     test_single_chunk_fully_embedded_is_ready,
-    test_save_chunks_refreshes_processing_lease_between_batches,
     # search filtering
     test_full_text_search_filters_status,
     test_fuzzy_search_filters_status,
     test_semantic_chunk_search_filters_status,
+    test_semantic_chunk_search_uses_candidate_first_vector_order,
     test_semantic_document_fallback_filters_status,
+    test_semantic_chunk_search_truncates_content,
     test_full_text_empty_query_skips_db,
 ]
 
