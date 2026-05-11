@@ -3,7 +3,7 @@ layout: default
 ---
 
 <div align="center">
-  <img src="assets/norkartFull.png" alt="Atlas" width="400" />
+  <img id="atlas-logo" src="assets/norkartFull.png" alt="Atlas" width="400" />
   <p><em>AI-assistert geospatialt arbeidsverktøy for kartanalyse og KU-relaterte arbeidsflyter</em></p>
 </div>
 
@@ -128,17 +128,12 @@ Atlas støtter mørk og lys modus med persistent lagring i nettleseren.
 
 <style>
   body.dark { background: #0d1117; color: #c9d1d9; }
-  body.dark .page-header { background: #161b22; background-image: none; }
-  body.dark .main-content h1,
-  body.dark .main-content h2,
-  body.dark .main-content h3,
-  body.dark .main-content h4 { color: #58a6ff; }
-  body.dark .main-content a { color: #58a6ff; }
   body.dark hr { border-color: #30363d; }
+  body.dark .main-content h3 { color: #c9d1d9; }
 
   #theme-toggle {
     position: fixed;
-    bottom: 1.5rem;
+    top: 1.5rem;
     right: 1.5rem;
     z-index: 999;
     background: #238636;
@@ -158,6 +153,7 @@ Atlas støtter mørk og lys modus med persistent lagring i nettleseren.
   const apply = dark => {
     document.body.classList.toggle('dark', dark);
     document.getElementById('theme-icon').className = dark ? 'fa-solid fa-sun' : 'fa-solid fa-moon';
+    document.getElementById('atlas-logo').src = dark ? 'assets/norkartFull_white.png' : 'assets/norkartFull.png';
   };
   apply(localStorage.getItem('theme') === 'dark');
   btn.addEventListener('click', () => {
