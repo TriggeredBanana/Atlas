@@ -7,8 +7,8 @@ from typing import Callable, cast
 
 from copilot import CopilotClient
 from copilot.session import PermissionHandler, PermissionRequestResult
+from mcp_servers.map_server import get_and_clear_shapes, store_map_context, clear_map_context
 from copilot.generated.session_events import SessionEventType
-from mcp_servers.map_server import get_and_clear_shapes
 from usage_tracker import get_or_create_tracker, discard_tracker
 from config import (
     DEMO_MODE,
@@ -26,6 +26,79 @@ SERVER_BASE_URL = os.getenv("SERVER_BASE_URL", "http://localhost:8000")
 _MAX_CONTEXT_MESSAGES = 30
 # Maximum characters per message used in the context injection.
 _MAX_CONTEXT_CHARS = 1000
+
+def _summarize_map_layer(layer: dict) -> str:
+    """Pre-process a drawn map layer into a human-readable summary with exact coordinates."""
+    name = layer.get('name', 'Unnamed')
+    shape = layer.get('shape', '?')
+    geojson = layer.get('geoJson')
+
+    if not geojson:
+        return f"- {name} ({shape}): ingen geometridata"
+
+    geometry = None
+    properties = {}
+    if geojson.get('type') == 'Feature':
+        geometry = geojson.get('geometry')
+        properties = geojson.get('properties', {})
+    elif geojson.get('type') == 'FeatureCollection':
+        features = geojson.get('features', [])
+        if features:
+            geometry = features[0].get('geometry')
+            properties = features[0].get('properties', {})
+    else:
+        geometry = geojson
+
+    if not geometry:
+        return f"- {name} ({shape}): ingen geometridata"
+
+    geom_type = geometry.get('type', '')
+    coords = geometry.get('coordinates', [])
+    lines = [f"- {name} ({shape}):"]
+
+    if geom_type == 'Point':
+        lon, lat = coords[0], coords[1]
+        lines.append(f"  Posisjon: {lon:.6f}°Ø, {lat:.6f}°N")
+
+    elif geom_type == 'Polygon':
+        ring = coords[0] if coords else []
+        if ring:
+            lons = [c[0] for c in ring]
+            lats = [c[1] for c in ring]
+            min_lon, max_lon = min(lons), max(lons)
+            min_lat, max_lat = min(lats), max(lats)
+            center_lon = (min_lon + max_lon) / 2
+            center_lat = (min_lat + max_lat) / 2
+            lines.append(f"  Senter: {center_lon:.6f}°Ø, {center_lat:.6f}°N")
+            lines.append(f"  Bounding box: ({min_lon:.6f}°Ø, {min_lat:.6f}°N) til ({max_lon:.6f}°Ø, {max_lat:.6f}°N)")
+            if 'radiusMeters' in properties:
+                lines.append(f"  Radius: {properties['radiusMeters']} m")
+
+    elif geom_type == 'LineString':
+        if coords:
+            start, end = coords[0], coords[-1]
+            lines.append(f"  Start: {start[0]:.6f}°Ø, {start[1]:.6f}°N")
+            lines.append(f"  Slutt: {end[0]:.6f}°Ø, {end[1]:.6f}°N")
+            lines.append(f"  Antall punkter: {len(coords)}")
+
+    elif geom_type == 'MultiPolygon':
+        all_lons, all_lats = [], []
+        for polygon in coords:
+            for ring in polygon:
+                for c in ring:
+                    all_lons.append(c[0])
+                    all_lats.append(c[1])
+        if all_lons:
+            min_lon, max_lon = min(all_lons), max(all_lons)
+            min_lat, max_lat = min(all_lats), max(all_lats)
+            center_lon = (min_lon + max_lon) / 2
+            center_lat = (min_lat + max_lat) / 2
+            lines.append(f"  Senter: {center_lon:.6f}°Ø, {center_lat:.6f}°N")
+            lines.append(f"  Bounding box: ({min_lon:.6f}°Ø, {min_lat:.6f}°N) til ({max_lon:.6f}°Ø, {max_lat:.6f}°N)")
+            lines.append(f"  Antall polygoner: {len(coords)}")
+
+    lines.append(f"  GeoJSON: {json.dumps(geojson)}")
+    return "\n".join(lines)
 
 def strict_permission_handler(*_args, **_kwargs):
     """Deny tool permission requests by default outside demo mode."""
@@ -340,12 +413,22 @@ class SessionManager:
             )
 
         if map_context:
-            layer_summary = "\n".join(
-                f"- {l.get('name', 'Unnamed')} ({l.get('shape', '?')}): {json.dumps(l.get('geoJson'))}"
-                for l in map_context
-            )
-            parts.append(f"[CURRENT MAP STATE]\n{layer_summary}")
+            # Store map context so the MCP tool map-get_drawn_layers can access it.
+            if chat_id:
+                store_map_context(chat_id, map_context)
 
+            layer_summaries = "\n".join(
+                _summarize_map_layer(l) for l in map_context
+            )
+            parts.append(
+                "[CURRENT MAP STATE]\n"
+                "Brukeren har følgende lag tegnet på kartet med EKSAKTE koordinater.\n"
+                "GeoJSON-koordinater bruker rekkefølgen [longitude, latitude].\n"
+                "Bruk disse EKSAKTE koordinatene i svaret — IKKE avrund, estimer, eller gjett stedsnavn fra koordinater.\n"
+                "Hvis brukeren spør om kartinnholdet, svar med dataen nedenfor.\n"
+                "Du kan også kalle map-get_drawn_layers for å hente kartdata strukturert.\n\n"
+                f"{layer_summaries}"
+            )
         parts.append(f"[USER MESSAGE]\n{message}")
         return "\n\n".join(parts)
 
@@ -398,6 +481,7 @@ class SessionManager:
         if unsub:
             unsub()
         discard_tracker(chat_id)
+        clear_map_context(chat_id)
 
         if session is None:
             return

@@ -1,9 +1,9 @@
 """
-SearchService — unified search across documents.
+SearchService -- unified search across documents.
 
 Provides four search strategies:
   - search_full_text:  tsvector-based Norwegian full-text search  (active)
-  - search_semantic:   pgvector cosine similarity                 (active — requires embeddings in DB)
+  - search_semantic:   pgvector cosine similarity                 (active -- requires embeddings in DB)
   - search_fuzzy:      pg_trgm trigram similarity                 (active)
   - hybrid_search:     combines all three, tolerates missing backends
 
@@ -17,8 +17,15 @@ from db import query
 logger = logging.getLogger(__name__)
 
 _SNIPPET_LENGTH = 300
-_SEMANTIC_CHUNK_CANDIDATE_MULTIPLIER = 8
-_SEMANTIC_CHUNK_MIN_CANDIDATES = 100
+# Candidate multiplier for the inner HNSW ANN stage in semantic chunk search.
+# The inner query fetches this many chunks (ordered purely by vector distance so
+# the HNSW index is used), and the outer query then deduplicates by document and
+# applies the caller's final limit on that small materialized set.
+_ANN_CANDIDATE_FACTOR = 10
+# Small result limits still need a reasonably wide ANN candidate pool; otherwise
+# repeated chunks from one document can crowd out other relevant documents
+# before DISTINCT ON has a chance to deduplicate.
+_ANN_MIN_CANDIDATES = 100
 
 
 def _with_snippets(rows) -> list[dict]:
@@ -55,7 +62,7 @@ async def search_full_text(search_query: str, limit: int = 10) -> list[dict]:
         """,
         {"q": search_query.strip(), "lim": limit},
     )
-    logger.info("search_full_text: query='%s' → %d treff", search_query.strip(), len(rows))
+    logger.info("search_full_text: query='%s' -> %d treff", search_query.strip(), len(rows))
     return _with_snippets(rows)
 
 
@@ -70,21 +77,22 @@ async def search_semantic(search_query: str, limit: int = 10) -> list[dict]:
     embedding).
 
     Returns one result per unique document (best-matching chunk per document).
-    Each result includes heading_path, section_title, topic_type, and page_start
-    so the caller knows exactly which part of the document matched.
+    Each result includes heading_path, section_title, topic_type, page_start,
+    and chunk_id so callers can hydrate the full chunk text via get_chunk_by_id()
+    when they need more than the snippet preview.
     """
     if not search_query or not search_query.strip():
         return []
 
     query_embedding = await _embed_text(search_query.strip())
     if query_embedding is None:
-        logger.info("search_semantic: ingen embedding-modell konfigurert — hopper over")
+        logger.info("search_semantic: ingen embedding-modell konfigurert -- hopper over")
         return []
 
     # Chunk-level semantic search (higher precision)
     chunk_results = await _search_semantic_chunks(query_embedding, search_query.strip(), limit)
 
-    # Document-level fallback — always run so un-chunked documents are covered
+    # Document-level fallback -- always run so un-chunked documents are covered
     doc_results = await _search_semantic_documents(query_embedding, search_query.strip(), limit)
 
     if not chunk_results:
@@ -112,23 +120,32 @@ async def _search_semantic_chunks(
     """
     Find the best-matching chunk per document using pgvector cosine similarity.
 
-    Fetches a limited nearest-neighbour candidate set first so PostgreSQL can
-    use the pgvector HNSW index on chunks.embedding, then de-duplicates that
-    candidate set down to the best chunk per document.
+    Two-stage approach to preserve HNSW index usage:
 
-    Returns chunk-level content with the same snippet-length content contract
-    used by the other search backends.
+    1. Inner query: pure ``ORDER BY embedding <=> query LIMIT k`` so pgvector can
+       use the HNSW index for an approximate nearest-neighbor scan over *all*
+       chunks.  k = limit * _ANN_CANDIDATE_FACTOR gives enough headroom that the
+       best chunk per document is very likely included.
+
+    2. Middle query: joins the small candidate set with documents, filters by
+       indexing_status, then uses DISTINCT ON (d.id) to keep only the
+       highest-scoring chunk per document.  Because this operates on at most k
+       rows (not the full chunks table) the sort is cheap.
+
+    3. Outer query: re-sorts the per-document winners by score and applies the
+       caller's final limit.
+
+    Returns chunk-level content with the same snippet-length contract used by
+    the other search backends.
     """
-    candidate_limit = max(
-        limit * _SEMANTIC_CHUNK_CANDIDATE_MULTIPLIER,
-        _SEMANTIC_CHUNK_MIN_CANDIDATES,
-    )
+    candidate_lim = max(limit * _ANN_CANDIDATE_FACTOR, _ANN_MIN_CANDIDATES)
     rows = await query(
         """
-        WITH nearest_chunks AS (
-            SELECT
-                d.id                                              AS document_id,
-                d.title                                           AS document_title,
+        SELECT *
+        FROM (
+            SELECT DISTINCT ON (d.id)
+                d.id                                              AS id,
+                d.title,
                 c.text                                            AS content,
                 c.heading_path,
                 c.section_title,
@@ -141,42 +158,23 @@ async def _search_semantic_chunks(
                 c.chunk_index,
                 c.id                                              AS chunk_id,
                 1 - (c.embedding <=> %(emb)s::vector)             AS score
-            FROM chunks c
-            JOIN documents d ON d.id = c.document_id
-            WHERE c.embedding IS NOT NULL
-              AND d.indexing_status IN ('ready', 'partial')
-            ORDER BY c.embedding <=> %(emb)s::vector
-            LIMIT %(candidate_lim)s
-        )
-        SELECT *
-        FROM (
-            SELECT DISTINCT ON (nc.document_id)
-                nc.document_id                                    AS id,
-                nc.document_title                                 AS title,
-                nc.content,
-                nc.heading_path,
-                nc.section_title,
-                nc.topic_type,
-                nc.alternative,
-                nc.delomrade,
-                nc.contains_table,
-                nc.page_start,
-                nc.page_end,
-                nc.chunk_index,
-                nc.chunk_id,
-                nc.score
-            FROM nearest_chunks nc
-            ORDER BY nc.document_id, nc.score DESC
+            FROM (
+                SELECT *
+                FROM chunks
+                WHERE embedding IS NOT NULL
+                ORDER BY embedding <=> %(emb)s::vector
+                LIMIT %(candidate_lim)s
+            ) c
+            JOIN documents d ON c.document_id = d.id
+            WHERE d.indexing_status IN ('ready', 'partial')
+            ORDER BY d.id, c.embedding <=> %(emb)s::vector
         ) best_per_doc
         ORDER BY score DESC
         LIMIT %(lim)s;
         """,
-        {"emb": json.dumps(query_embedding), "lim": limit, "candidate_lim": candidate_limit},
+        {"emb": json.dumps(query_embedding), "lim": limit, "candidate_lim": candidate_lim},
     )
-    logger.info(
-        "search_semantic (chunks): query='%s' → %d treff from %d candidates",
-        search_query, len(rows), candidate_limit,
-    )
+    logger.info("search_semantic (chunks): query='%s' -> %d treff", search_query, len(rows))
     return _with_snippets(rows)
 
 
@@ -204,7 +202,7 @@ async def _search_semantic_documents(
         """,
         {"emb": json.dumps(query_embedding), "lim": limit},
     )
-    logger.info("search_semantic (documents fallback): query='%s' → %d treff", search_query, len(rows))
+    logger.info("search_semantic (documents fallback): query='%s' -> %d treff", search_query, len(rows))
     return _with_snippets([dict(r) for r in rows])
 
 
@@ -238,7 +236,7 @@ async def search_fuzzy(search_query: str, limit: int = 10) -> list[dict]:
         """,
         {"q": search_query.strip(), "lim": limit},
     )
-    logger.info("search_fuzzy: query='%s' → %d treff", search_query.strip(), len(rows))
+    logger.info("search_fuzzy: query='%s' -> %d treff", search_query.strip(), len(rows))
     return _with_snippets(rows)
 
 
@@ -260,7 +258,7 @@ async def hybrid_search(search_query: str, limit: int = 10) -> list[dict]:
     except Exception as e:
         logger.warning("hybrid_search: fulltekstsøk feilet: %s", e)
 
-    # Semantic search (pgvector — returns empty if no embeddings exist yet)
+    # Semantic search (pgvector -- returns empty if no embeddings exist yet)
     try:
         for doc in await search_semantic(search_query, limit):
             doc_id = doc["id"]
@@ -282,7 +280,7 @@ async def hybrid_search(search_query: str, limit: int = 10) -> list[dict]:
 
     results = sorted(combined.values(), key=lambda d: d.get("score", 0), reverse=True)
     logger.info(
-        "hybrid_search: query='%s' → %d unike treff (fulltext=%d, semantic=%d, fuzzy=%d)",
+        "hybrid_search: query='%s' -> %d unike treff (fulltext=%d, semantic=%d, fuzzy=%d)",
         search_query.strip(),
         len(results),
         sum(1 for d in results if d.get("source") == "fulltext"),
@@ -324,11 +322,12 @@ async def get_chunk_by_id(chunk_id: int) -> dict | None:
             c.chunk_index
         FROM chunks c
         JOIN documents d ON d.id = c.document_id
-        WHERE c.id = %(chunk_id)s;
+        WHERE c.id = %(chunk_id)s
+          AND d.indexing_status IN ('ready', 'partial');
         """,
         {"chunk_id": chunk_id},
     )
-    return rows[0] if rows else None
+    return dict(rows[0]) if rows else None
 
 
 # ---------------------------------------------------------------------------

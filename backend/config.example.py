@@ -19,7 +19,7 @@ MAX_SESSIONS = int(os.getenv("MAX_SESSIONS", "100"))
 MAX_HISTORY_PER_SESSION = int(os.getenv("MAX_HISTORY_PER_SESSION", "200"))
 DEMO_MODE = os.getenv("DEMO_MODE", "false").lower() in ("1", "true", "yes", "on")
 
-# SQL allowlist — comma-separated list of PostgreSQL schemas the agent may query.
+# SQL allowlist -- comma-separated list of PostgreSQL schemas the agent may query.
 # Example: SQL_ALLOWED_SCHEMAS=public,your_gis_schema
 SQL_ALLOWED_SCHEMAS = os.getenv("SQL_ALLOWED_SCHEMAS", "")
 
@@ -42,5 +42,5 @@ BLOB_CONTAINER_NAME = os.getenv("BLOB_CONTAINER_NAME")
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 # Search / indexing
-# INDEXING_ENABLED=true  — enable index_document and index_all_documents MCP tools
-# GITHUB_MODELS_TOKEN=ghp_...  — GitHub fine-grained token with 'models:read' scope (for semantic search)
+# INDEXING_ENABLED=true  -- enable index_document and index_all_documents MCP tools
+# GITHUB_MODELS_TOKEN=ghp_...  -- GitHub fine-grained token with 'models:read' scope (for semantic search)

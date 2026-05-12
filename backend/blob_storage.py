@@ -2,10 +2,14 @@ from azure.storage.blob import BlobServiceClient
 
 from config import AZURE_CONNECTION_STRING, BLOB_CONTAINER_NAME
 
-_PDF_SUFFIXES = (".pdf", ".PDF")
+
+_container_client = None
 
 
 def _get_container_client():
+    global _container_client
+    if _container_client is not None:
+        return _container_client
     missing = []
     if not AZURE_CONNECTION_STRING:
         missing.append("AZURE_CONNECTION_STRING")
@@ -16,11 +20,12 @@ def _get_container_client():
             "Missing Azure Blob Storage configuration: " + ", ".join(missing)
         )
     blob_service = BlobServiceClient.from_connection_string(AZURE_CONNECTION_STRING)
-    return blob_service.get_container_client(BLOB_CONTAINER_NAME)
+    _container_client = blob_service.get_container_client(BLOB_CONTAINER_NAME)
+    return _container_client
 
 
 def _is_pdf_blob_name(blob_name: str) -> bool:
-    return blob_name.endswith(_PDF_SUFFIXES)
+    return blob_name.lower().endswith(".pdf")
 
 
 def download_blob_bytes(blob_name: str) -> bytes:

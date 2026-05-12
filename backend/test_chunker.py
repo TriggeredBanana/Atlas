@@ -1,7 +1,7 @@
 """
 Lightweight validation tests for chunker.py.
 
-These tests are self-contained — no database, no Azure, no embeddings API.
+These tests are self-contained -- no database, no Azure, no embeddings API.
 Run with:
   cd backend
   python test_chunker.py
@@ -91,7 +91,7 @@ def test_short_section_single_chunk():
     # The chunk for section 3.1 should contain the heading text
     ok &= assert_true("heading text in chunk", any("Metode" in c["text"] for c in chunks))
 
-    # Use `or ""` because metadata stores the key with None value when absent —
+    # Use `or ""` because metadata stores the key with None value when absent --
     # .get(key, default) only uses the default when the key is missing, not when None.
     meta_chunks = [c for c in chunks if "3.1" in (c["metadata"].get("section_number") or "")]
     ok &= assert_true("section_number populated", len(meta_chunks) >= 1)
@@ -186,7 +186,7 @@ def test_heading_detection():
 
 
 # ---------------------------------------------------------------------------
-# Test 4: Metadata — heading_path, alternative, delomrade
+# Test 4: Metadata -- heading_path, alternative, delomrade
 # ---------------------------------------------------------------------------
 
 def test_metadata_fields():
@@ -244,7 +244,7 @@ def test_alternative_detection_does_not_overmatch_normal_words():
 # ---------------------------------------------------------------------------
 
 def test_fallback_paragraph_chunking():
-    # All blocks are body text — no headings, same small font
+    # All blocks are body text -- no headings, same small font
     blocks = [
         _block("Tiltaket er beskrevet i kapittel 3. " * 20, page=1),
         _block("Metodikken er basert på feltarbeid. " * 20, page=2),
@@ -270,7 +270,7 @@ def test_empty_blocks():
 def test_single_heading_no_body():
     blocks = [_heading_block("1 Innledning", page=1)]
     chunks = chunk_document(blocks, document_name="OnlyHeading", source_blob="heading.pdf")
-    # The document has only 1 named section — below MIN_HEADINGS_FOR_STRUCTURE=2,
+    # The document has only 1 named section -- below MIN_HEADINGS_FOR_STRUCTURE=2,
     # so it falls back to paragraph-based chunking
     return assert_true("single heading document produces at least one chunk", len(chunks) >= 1)
 
@@ -298,7 +298,7 @@ def test_blocks_without_font_metadata():
 def test_blocks_to_text():
     blocks = [
         _block("  Første avsnitt.  "),
-        _block(""),                    # empty — should be skipped
+        _block(""),                    # empty -- should be skipped
         _block("  Andre avsnitt.  "),
     ]
     result = blocks_to_text(blocks)
@@ -338,8 +338,8 @@ def test_chunk_text_non_empty_for_embedding():
         _block("Innhold under oversikt."),
         _heading_block("2 Detaljer"),
         _block("Innhold under detaljer."),
-        _block(""),              # empty block — should not create empty chunk text
-        _block("   "),           # whitespace-only — likewise
+        _block(""),              # empty block -- should not create empty chunk text
+        _block("   "),           # whitespace-only -- likewise
         _heading_block("3 Oppsummering"),
         _block("Siste avsnitt."),
     ]
