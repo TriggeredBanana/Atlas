@@ -9,9 +9,11 @@ Tools:
 
 import json
 import logging
+import re
 import urllib.request
 import urllib.parse
 import urllib.error
+from urllib.parse import urlparse
 
 from fastmcp import FastMCP
 from db import query
@@ -30,9 +32,21 @@ _KARTVERKET_NAVN_URL = "https://ws.geonorge.no/stedsnavn/v1/navn"
 _KARTVERKET_STED_URL = "https://ws.geonorge.no/stedsnavn/v1/sted"
 _KARTVERKET_KOMMUNEINFO_URL = "https://ws.geonorge.no/kommuneinfo/v1/punkt"
 
+# Allowlist of hosts _fetch_json is permitted to contact (SSRF guard).
+_ALLOWED_HOSTS: frozenset[str] = frozenset({
+    "ws.geonorge.no",
+})
+
+# Only allow printable place-name characters; forbids CRLF and other controls.
+_SAFE_PLACENAME_RE = re.compile(r"^[\w\s\-.,/()æøåÆØÅ]{1,200}$", re.UNICODE)
+
 
 def _fetch_json(url: str) -> dict | None:
-    """Fetch JSON from a URL, returning None on failure."""
+    """Fetch JSON from an allowlisted URL, returning None on failure."""
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or parsed.hostname not in _ALLOWED_HOSTS:
+        logger.error("_fetch_json avvist URL utenfor allowlist: %s", url)
+        return None
     try:
         req = urllib.request.Request(url, headers={"Accept": "application/json"})
         with urllib.request.urlopen(req, timeout=10) as resp:
@@ -247,6 +261,8 @@ async def forward_geocode(name: str) -> str:
         return json.dumps({"error": "Tomt søkeord."})
 
     search_term = name.strip()
+    if not _SAFE_PLACENAME_RE.match(search_term):
+        return json.dumps({"error": "Ugyldig tegn i søkeord."})
 
     # 1) Try /navn with wildcard — precise match on skrivemåte
     navn_params = urllib.parse.urlencode({
