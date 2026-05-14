@@ -51,6 +51,7 @@ from starlette.responses import JSONResponse, StreamingResponse
 from blob_storage import list_documents
 from config import ALLOWED_ORIGINS, DEMO_MODE, HOST, PORT
 from copilot import CopilotClient
+from mcp_auth import MCPAuthMiddleware
 from sanitizer import (
     sanitize_completed_thinking as _sanitize_completed_thinking,
     sanitize_thinking as _sanitize_thinking,
@@ -580,12 +581,14 @@ async def test_search_chunk(request: Request):
 app = Starlette(
     routes=[
         # MCP servers -- each accessible at /mcp/<name>/mcp
-        Mount("/mcp/db",     app=db_app),
-        Mount("/mcp/geo",    app=geo_app),
-        Mount("/mcp/docs",   app=docs_app),
-        Mount("/mcp/vector", app=vector_app),
-        Mount("/mcp/map",    app=map_app),
-        Mount("/mcp/search", app=search_app),
+        # Wrapped with MCPAuthMiddleware: only in-process requests carrying the
+        # per-startup X-MCP-Internal-Token header are accepted.
+        Mount("/mcp/db",     app=MCPAuthMiddleware(db_app)),
+        Mount("/mcp/geo",    app=MCPAuthMiddleware(geo_app)),
+        Mount("/mcp/docs",   app=MCPAuthMiddleware(docs_app)),
+        Mount("/mcp/vector", app=MCPAuthMiddleware(vector_app)),
+        Mount("/mcp/map",    app=MCPAuthMiddleware(map_app)),
+        Mount("/mcp/search", app=MCPAuthMiddleware(search_app)),
 
         # Auth endpoints
         Route("/api/auth/register", endpoint=register, methods=["POST"]),
