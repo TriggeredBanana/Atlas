@@ -49,6 +49,11 @@ async def close_pool() -> None:
         logger.info("Pool closed.")
 
 
+def is_db_available() -> bool:
+    """Return True if the connection pool is initialised and usable."""
+    return _pool is not None
+
+
 def get_connection():
     if _pool is None:
         logger.error("Database connection pool is not initialized.")

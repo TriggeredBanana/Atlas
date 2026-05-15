@@ -58,7 +58,7 @@ from sanitizer import (
 )
 from session_manager import SessionManager
 from usage_tracker import get_or_create_tracker, get_tracker
-from db import init_db_pool, close_pool, execute, execute_transaction, query
+from db import init_db_pool, close_pool, execute, execute_transaction, query, is_db_available
 from tool_catalog import normalize_tool_hints
 from auth_routes import (
     get_user_from_request,
@@ -128,10 +128,17 @@ async def chat(request: Request):
     - If chat_id is absent a new chat is created (auto-titled from first msg).
     - Ownership of chat_id is enforced before use.
     - Loads prior DB messages for context injection into the Copilot session.
-    - Persists the user message and AI reply to app.messages.
-    - If stream=true, returns SSE events; otherwise returns JSON { reply, chat_id, map_actions }.
+    - Persists the user message and AI reply to app.messages when DB is available.
+    - When the DB is unavailable, the agent still runs and returns a reply
+      (with persisted=False); chat history is simply not saved for that turn.
+    - Returns { reply, chat_id, map_actions }.
     """
-    user = await get_user_from_request(request)
+    # Auth requires a live DB connection (tokens are stored there).
+    try:
+        user = await get_user_from_request(request)
+    except RuntimeError:
+        return JSONResponse({"error": "Database unavailable. Authentication not possible."}, status_code=503)
+
     if not user:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
 
@@ -150,44 +157,58 @@ async def chat(request: Request):
     stream = data.get("stream") is True
 
     chat_id: str | None = data.get("chat_id")
-    created_chat = not chat_id
     user_id = str(user["id"])
+    db_ok = is_db_available()
+    created_chat = not chat_id
+    prior_messages: list = []
 
-    # Resolve / create the chat
-    if chat_id:
-        # Enforce ownership - never trust client-supplied chat_id blindly.
-        ownership = await query(
-            "SELECT id FROM app.chats WHERE id = %s AND user_id = %s",
-            (chat_id, user_id),
-        )
-        if not ownership:
-            return JSONResponse({"error": "Chat not found."}, status_code=404)
-    else:
-        # Auto-title the new chat from the first message.
-        title = message[:_MAX_TITLE_LENGTH].rstrip()
-        if len(message) > _MAX_TITLE_LENGTH:
-            title += "…"
-        rows = await query(
-            """
-            INSERT INTO app.chats (user_id, title)
-            VALUES (%s, %s)
-            RETURNING id
-            """,
-            (user_id, title),
-        )
-        chat_id = str(rows[0]["id"])
+    if db_ok:
+        # Resolve / create the chat
+        if chat_id:
+            # Enforce ownership - never trust client-supplied chat_id blindly.
+            try:
+                ownership = await query(
+                    "SELECT id FROM app.chats WHERE id = %s AND user_id = %s",
+                    (chat_id, user_id),
+                )
+                if not ownership:
+                    return JSONResponse({"error": "Chat not found."}, status_code=404)
+            except RuntimeError:
+                db_ok = False
+        else:
+            # Auto-title the new chat from the first message.
+            title = message[:_MAX_TITLE_LENGTH].rstrip()
+            if len(message) > _MAX_TITLE_LENGTH:
+                title += "…"
+            try:
+                rows = await query(
+                    "INSERT INTO app.chats (user_id, title) VALUES (%s, %s) RETURNING id",
+                    (user_id, title),
+                )
+                chat_id = str(rows[0]["id"])
+            except RuntimeError:
+                db_ok = False
 
-    # Load prior messages for context injection
-    prior_rows = await query(
-        """
-        SELECT role, content
-        FROM app.messages
-        WHERE chat_id = %s
-        ORDER BY created_at ASC
-        """,
-        (chat_id,),
-    )
-    prior_messages = [{"role": r["role"], "content": r["content"]} for r in prior_rows]
+    # When the DB went down mid-request (or was never up), generate an
+    # ephemeral chat_id so the agent session can still be keyed correctly.
+    if not chat_id:
+        import uuid
+        chat_id = str(uuid.uuid4())
+
+    if db_ok:
+        # Load prior messages for context injection
+        try:
+            prior_rows = await query(
+                "SELECT role, content FROM app.messages WHERE chat_id = %s ORDER BY created_at ASC",
+                (chat_id,),
+            )
+            prior_messages = [{"role": r["role"], "content": r["content"]} for r in prior_rows]
+        except RuntimeError:
+            db_ok = False
+            prior_messages = []
+
+    if not db_ok:
+        logger.warning("DB unavailable for chat %s — running agent without persistence", chat_id)
 
     # Get or create a live Copilot session
     try:
@@ -231,6 +252,16 @@ async def chat(request: Request):
     # Finalise usage tracking for this turn.
     turn_usage = tracker.finalise_turn()
     usage_snapshot = tracker.snapshot(turn_usage)
+
+    # Skip persistence when the DB is unavailable — agent reply is still returned.
+    if not db_ok:
+        return JSONResponse({
+            "reply": reply,
+            "chat_id": chat_id,
+            "map_actions": map_actions,
+            "usage": usage_snapshot,
+            "persisted": False,
+        })
 
     # Persist the full exchange + AI layers atomically.
     user_meta = json.dumps({"tool_hints": tool_hints}) if tool_hints else None
