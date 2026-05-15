@@ -161,7 +161,10 @@ def _check_table_allowlist(stmt: exp.Select) -> None:
         if not name:
             continue
         if not _schema_allowed(schema, name):
+            allowed = sorted({s for s, _ in ALLOWED_TABLES if s != "*"})
+            allowed_str = ", ".join(allowed) if allowed else "(none configured)"
             raise SQLValidationError(
-                f'Schema "{schema}" is not in the allowed list. '
-                f'Add ("{schema}", "*") to ALLOWED_TABLES in sql_validator.py.'
+                f'Table "{schema}.{name}" is not accessible. '
+                f'Only the following schemas may be queried: {allowed_str}. '
+                f'Reformulate the query to use only tables within those schemas.'
             )
