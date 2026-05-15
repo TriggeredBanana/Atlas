@@ -12,6 +12,10 @@ ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",
 
 # AI Model configuration
 MODEL_NAME = os.getenv("MODEL_NAME", "your-model-name-here")
+COPILOT_REASONING_EFFORT = os.getenv("COPILOT_REASONING_EFFORT", "medium").strip().lower()
+if COPILOT_REASONING_EFFORT not in {"low", "medium", "high", "xhigh"}:
+    COPILOT_REASONING_EFFORT = "medium"
+COPILOT_REQUEST_TIMEOUT_SECONDS = int(os.getenv("COPILOT_REQUEST_TIMEOUT_SECONDS", "240"))
 
 # Session management configuration
 SESSION_TIMEOUT_MINUTES = int(os.getenv("SESSION_TIMEOUT_MINUTES", "15"))

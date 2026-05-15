@@ -6,6 +6,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 import logging
 from fastmcp import FastMCP
 from db import get_connection
+from geometry_store import geometry_store
 
 
 if sys.platform == "win32":
@@ -26,13 +27,30 @@ vector_mcp = FastMCP("vector_server")
 # ---------------------------------------------------------------------------
 
 @vector_mcp.tool()
-async def buffer(geojson:str, meter_radius:float) -> str:
+async def buffer(meter_radius: float, geojson: str = "", geometry_ref: str = "", session_id: str = "") -> str:
     """
     Creates a buffer zone around a geometry.
     Use this when the user asks about areas within a certain distance of a location,
-    impact zones, proximity analysis, or wants to create a buffered area. 
-    Input must be a GeoJSON geometry string and return value is buffered geometry in GeoJSON format. 
+    impact zones, proximity analysis, or wants to create a buffered area.
+
+    Accepts either a raw GeoJSON geometry string OR a geometry_ref returned by
+    a previous tool call.  Returns a geometry reference for the buffered result.
+
+    Args:
+        meter_radius: Buffer distance in metres.
+        geojson: A GeoJSON geometry string (optional if geometry_ref is provided).
+        geometry_ref: A geometry reference ID from a previous tool call (preferred).
+        session_id: Current session ID for geometry caching.
     """
+    # Resolve geometry from ref if provided
+    resolved = geojson
+    if geometry_ref and session_id:
+        cached = geometry_store.retrieve(session_id, geometry_ref)
+        if cached:
+            resolved = json.dumps(cached) if isinstance(cached, dict) else cached
+    if not resolved:
+        return json.dumps({"error": "No geometry provided. Supply geojson or geometry_ref."})
+
     try:
         async with get_connection() as conn:
             async with conn.cursor() as cur:
@@ -40,15 +58,95 @@ async def buffer(geojson:str, meter_radius:float) -> str:
                     """
                     SELECT ST_AsGeoJSON(ST_Transform(ST_buffer(ST_Transform(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326), 25833), %s), 4326)) AS buffer_geojson;
                     """,
-                    (geojson, meter_radius)
+                    (resolved, meter_radius)
                 )
                 row = await cur.fetchone()
                 if not row:
                     return "Buffer operation failed: no result returned from database."
-                return json.dumps({"buffer_geojson": json.loads(row["buffer_geojson"])}, ensure_ascii=False)
+                result_geojson = json.loads(row["buffer_geojson"])
+                if session_id:
+                    ref = geometry_store.store(session_id, result_geojson)
+                    return json.dumps({"status": "success", "geometry_ref": ref, "type": result_geojson.get("type", "Polygon")}, ensure_ascii=False)
+                return json.dumps({"buffer_geojson": result_geojson}, ensure_ascii=False)
     except Exception as e:
         logger.error(f"Error creating buffer: {e}")
         return f"Failed to create buffer: {e}"
+
+
+@vector_mcp.tool()
+async def buffer_features(geojson_collection: str, meter_radius: float, session_id: str = "") -> str:
+    """
+    Buffer ALL features in a GeoJSON FeatureCollection at once in a single
+    database query.  ALWAYS prefer this over calling buffer() in a loop.
+
+    Args:
+        geojson_collection: A GeoJSON FeatureCollection string, or a geometry_ref
+                            pointing to one.
+        meter_radius: Buffer distance in metres applied to every feature.
+        session_id: Current session ID for geometry caching.
+    """
+    # Resolve geometry ref
+    resolved = geojson_collection
+    if session_id and resolved.startswith("geo_"):
+        cached = geometry_store.retrieve(session_id, resolved)
+        if cached:
+            resolved = json.dumps(cached) if isinstance(cached, dict) else cached
+
+    try:
+        collection = json.loads(resolved)
+    except (json.JSONDecodeError, TypeError) as e:
+        return json.dumps({"error": f"Invalid GeoJSON: {e}"})
+
+    features = collection.get("features", [])
+    if not features:
+        return json.dumps({"error": "No features in FeatureCollection."})
+
+    try:
+        async with get_connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    """
+                    SELECT
+                        ordinality,
+                        ST_AsGeoJSON(
+                            ST_Transform(
+                                ST_Buffer(
+                                    ST_Transform(
+                                        ST_SetSRID(ST_GeomFromGeoJSON(feat->>'geometry'), 4326),
+                                        25833),
+                                    %s),
+                                4326)
+                        ) AS buffered
+                    FROM json_array_elements(%s::json) WITH ORDINALITY AS t(feat, ordinality)
+                    ORDER BY ordinality;
+                    """,
+                    (meter_radius, json.dumps(features))
+                )
+                rows = await cur.fetchall()
+
+        out_features = []
+        for row in rows:
+            idx = int(row["ordinality"]) - 1
+            props = features[idx].get("properties", {}) if idx < len(features) else {}
+            out_features.append({
+                "type": "Feature",
+                "geometry": json.loads(row["buffered"]),
+                "properties": props,
+            })
+
+        result_fc = {"type": "FeatureCollection", "features": out_features}
+        if session_id:
+            ref = geometry_store.store(session_id, result_fc)
+            return json.dumps({
+                "status": "success",
+                "geometry_ref": ref,
+                "feature_count": len(out_features),
+                "message": f"Buffered {len(out_features)} features by {meter_radius}m.",
+            }, ensure_ascii=False)
+        return json.dumps(result_fc, ensure_ascii=False, default=str)
+    except Exception as e:
+        logger.error(f"buffer_features failed: {e}")
+        return json.dumps({"error": f"Buffer batch failed: {e}"})
 
 
 @vector_mcp.tool()
@@ -186,56 +284,103 @@ async def point_in_polygon(points_geojson: str, polygon_geojson: str) -> str:
 # ---------------------------------------------------------------------------
 
 @vector_mcp.tool()
-async def get_verdensarv_sites() -> str:
+async def get_verdensarv_sites(session_id: str = "", latitude: float = 0.0, longitude: float = 0.0, limit: int = 0) -> str:
     """
-    Fetches all Norwegian world heritage sites from the database including
-    their name, protection date, description and GeoJSON geometry.
-    Use this tool when the user asks about Norwegian world heritage sites,
-    their locations, or any details about them. Always return the full list
-    from the database, even if the user only asks about one site.
-    After calling this tool, pass the GeoJSON geometries to map-draw_shape()
-    to visualize the sites on the map.
+    Fetches Norwegian world heritage sites from the database.
+
+    When latitude, longitude, and limit are provided, returns only the N
+    nearest sites sorted by distance.  Otherwise returns all sites.
+
+    Results include name, protection date, and description.  Geometries are
+    stored in the backend geometry cache — each site gets a geometry_ref you
+    can pass directly to map-draw_shape or map-draw_shapes_batch.
+    The LLM should NEVER request raw GeoJSON from this tool.
+
+    Args:
+        session_id: Current session ID (used for geometry caching).
+        latitude: Optional latitude for nearest-site queries (WGS84).
+        longitude: Optional longitude for nearest-site queries (WGS84).
+        limit: Max number of sites to return (0 = all).
     """
     try:
+        use_spatial = latitude != 0.0 and longitude != 0.0 and limit > 0
         async with get_connection() as conn:
             async with conn.cursor() as cur:
-                await cur.execute(
-                    """
-                    SELECT
-                        navn,
-                        vernedato,
-                        informasjon,
-                        ST_AsGeoJSON(ST_Transform(geom, 4326)) AS geojson
-                    FROM norges_verdensarv;
-                    """
-                )
+                if use_spatial:
+                    await cur.execute(
+                        """
+                        SELECT
+                            navn,
+                            vernedato,
+                            informasjon,
+                            ST_AsGeoJSON(ST_Transform(geom, 4326)) AS geojson,
+                            ST_Distance(
+                                ST_Transform(geom, 4326)::geography,
+                                ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography
+                            ) AS distance_m
+                        FROM norges_verdensarv
+                        ORDER BY distance_m ASC
+                        LIMIT %s;
+                        """,
+                        (longitude, latitude, limit)
+                    )
+                else:
+                    await cur.execute(
+                        """
+                        SELECT
+                            navn,
+                            vernedato,
+                            informasjon,
+                            ST_AsGeoJSON(ST_Transform(geom, 4326)) AS geojson
+                        FROM norges_verdensarv;
+                        """
+                    )
                 rows = await cur.fetchall()
                 if not rows:
                     return "No world heritage sites found in database."
-                results = [
-                    {
-                        "navn": dict(row)["navn"],
-                        "vernedato": dict(row)["vernedato"].isoformat() if dict(row)["vernedato"] else None,
-                        "informasjon": dict(row)["informasjon"],
-                        "geojson": dict(row)["geojson"],
+
+                results = []
+                for row in rows:
+                    r = dict(row)
+                    geojson_str = r["geojson"]
+                    site_info = {
+                        "navn": r["navn"],
+                        "vernedato": r["vernedato"].isoformat() if r["vernedato"] else None,
+                        "informasjon": r["informasjon"],
                     }
-                    for row in rows
-                ]
-                return json.dumps(results, ensure_ascii=False)
+                    if use_spatial:
+                        site_info["distance_m"] = round(r.get("distance_m", 0), 1)
+
+                    # Store geometry in cache, give LLM only the ref
+                    if session_id and geojson_str:
+                        geojson_obj = json.loads(geojson_str)
+                        ref = geometry_store.store(session_id, geojson_obj)
+                        site_info["geometry_ref"] = ref
+                    elif geojson_str:
+                        # Fallback: include raw geojson only when no session
+                        site_info["geojson"] = geojson_str
+
+                    results.append(site_info)
+
+                return json.dumps({
+                    "status": "success",
+                    "count": len(results),
+                    "sites": results,
+                    "message": f"Found {len(results)} world heritage site(s). Use geometry_ref values with map-draw_shapes_batch to display them."
+                }, ensure_ascii=False)
     except Exception as e:
         logger.error(f"Failed to fetch world heritage sites: {e}")
         return f"Error fetching world heritage sites: {e}"
 
 @vector_mcp.tool(annotations={"readOnlyHint": True})
-async def voronoi(geojson: str) -> str:
+async def voronoi(geojson: str, session_id: str = "") -> str:
     """
     Generates a Voronoi diagram from a GeoJSON FeatureCollection of points (or any geometries,
     whose centroids are used as input seeds). Uses PostGIS ST_VoronoiPolygons for a true
     Delaunay-based result.
 
-    Returns a GeoJSON FeatureCollection where each Voronoi polygon carries the properties
-    of the seed feature it was generated from.
-    Send the result to map-draw_shape() to visualize it on the map.
+    Returns a geometry reference for the resulting FeatureCollection.
+    Pass the geometry_ref to map-draw_shape or map-draw_shapes_batch to visualize.
 
     Use this tool whenever the user asks for Voronoi analysis, influence zones, nearest-feature
     partitioning, or any spatial tessellation from a set of point or polygon features.
@@ -243,6 +388,7 @@ async def voronoi(geojson: str) -> str:
     Args:
         geojson: A GeoJSON FeatureCollection (points or polygons). Each feature may carry
                  any properties — they are preserved on the output polygons.
+        session_id: Current session ID for geometry caching.
     """
     try:
         collection = json.loads(geojson)
@@ -361,11 +507,17 @@ async def voronoi(geojson: str) -> str:
                         "properties": properties,
                     })
 
-                return json.dumps(
-                    {"type": "FeatureCollection", "features": out_features},
-                    ensure_ascii=False,
-                    default=str,
-                )
+                result_fc = {"type": "FeatureCollection", "features": out_features}
+                # Store in geometry cache if session available
+                if session_id:
+                    ref = geometry_store.store(session_id, result_fc)
+                    return json.dumps({
+                        "status": "success",
+                        "geometry_ref": ref,
+                        "polygon_count": len(out_features),
+                        "message": f"Voronoi diagram with {len(out_features)} polygons. Use geometry_ref with map-draw_shape to display.",
+                    }, ensure_ascii=False)
+                return json.dumps(result_fc, ensure_ascii=False, default=str)
     except Exception as e:
         logger.error(f"voronoi failed: {e}")
         return json.dumps({"error": f"Voronoi-beregning feilet: {e}"})
