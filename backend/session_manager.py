@@ -5,8 +5,7 @@ import os
 from datetime import datetime, timedelta, timezone
 from typing import Callable, cast
 
-from copilot import CopilotClient
-from copilot.session import PermissionHandler, PermissionRequestResult
+from copilot import CopilotClient, PermissionHandler, PermissionRequestResult
 from mcp_servers.map_server import get_and_clear_shapes, store_map_context, clear_map_context
 from copilot.generated.session_events import SessionEventType
 from usage_tracker import get_or_create_tracker, discard_tracker
@@ -294,7 +293,7 @@ class SessionManager:
             self.last_active[chat_id] = datetime.now(timezone.utc)
 
         try:
-            response = await session.send_and_wait(full_message, timeout=COPILOT_REQUEST_TIMEOUT_SECONDS)
+            response = await session.send_and_wait({"prompt": full_message}, timeout=COPILOT_REQUEST_TIMEOUT_SECONDS)
         except Exception:
             # Evict the broken session so the next request creates a fresh one
             # instead of retrying against a permanently dead session.
@@ -360,7 +359,7 @@ class SessionManager:
 
         unsubscribe = session.on(handler)
         try:
-            await session.send(full_message)
+            await session.send({"prompt": full_message})
 
             # Yield events as they arrive until the session goes idle.
             loop = asyncio.get_running_loop()
