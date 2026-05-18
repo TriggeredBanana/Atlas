@@ -598,6 +598,7 @@ _SEARCH_SERVER_NAMES = {"search_server", "search"}
 _GEO_SERVER_NAMES = {"geo_server", "geo"}
 _MAP_SERVER_NAMES = {"map_server", "map"}
 _VECTOR_SERVER_NAMES = {"vector_server", "vector"}
+_MATRIKKEL_SERVER_NAMES = {"matrikkel_server", "matrikkel"}
 _DOCUMENT_NAME_SERVERS = _DOCS_SERVER_NAMES | _SEARCH_SERVER_NAMES
 _BLOB_NAME_KEYS = {"blob", "blob_name", "name", "source_blob"}
 _SEARCH_BLOB_NAME_KEYS = {"blob", "blob_name", "source_blob"}
@@ -699,7 +700,7 @@ def _derive_tool_task_summary(
         or _extract_tool_text(result, "layer_name")
     )
     distance_text = _format_distance(
-        _extract_tool_number(arguments, "distance", "meter_radius", "radius")
+        _extract_tool_number(arguments, "distance", "meter_radius", "radius", "radius_meters")
     )
     document_names = _extract_document_names(server_name, tool_name, arguments, result)
     primary_document = _quote_tool_text(
@@ -803,6 +804,20 @@ def _derive_tool_task_summary(
             if point_count:
                 return f"Genererte Voronoi-omrader basert pa {point_count} objekter."
             return "Genererte Voronoi-omrader for de valgte objektene."
+
+    if normalized_server in _MATRIKKEL_SERVER_NAMES:
+        if normalized_tool == "find_property_parcel_at_point":
+            return "Slo opp eiendomsteig for valgt punkt."
+        if normalized_tool == "find_property_parcels_near_point":
+            if distance_text:
+                return f"Slo opp eiendomsteiger innen {distance_text} fra valgt punkt."
+            return "Slo opp eiendomsteiger i naerheten av valgt punkt."
+        if normalized_tool == "get_property_boundary":
+            return "Hentet eiendomsgrense for teig."
+        if normalized_tool == "search_property_by_identifier":
+            return "Sokte etter eiendom med matrikkelidentifikator."
+        if normalized_tool == "summarize_property_context_for_point":
+            return "Oppsummerte eiendomskontekst for valgt punkt."
 
     if query_text:
         return f"Brukte {tool_label} for a finne informasjon om {query_text}."

@@ -9,7 +9,11 @@ Mounts MCP servers alongside the existing REST API:
   /mcp/vector/mcp  -- Vector tools    (buffer, intersection, envelope, get_coordinates, point_in_polygon, get_verdensarv_sites, voronoi)
   /mcp/map/mcp     -- Map tools       (draw_shape)
   /mcp/search/mcp  -- Search tools    (search_documents, search_documents_fuzzy, search_documents_semantic, search_hybrid, get_search_result_chunk, index_*, get_indexing_status)
+<<<<<<< Updated upstream
   /mcp/osm/mcp     -- OSM tools       (osm_geocode, osm_reverse_geocode, osm_lookup, osm_search_features, osm_search_features_bbox)
+=======
+  /mcp/matrikkel/mcp -- Matrikkel tools (property parcel lookups and boundaries)
+>>>>>>> Stashed changes
 
 Auth endpoints:
   POST /api/auth/register
@@ -78,6 +82,12 @@ from layer_routes import (
     layer_detail_handler,
     layers_handler,
 )
+from matrikkel_routes import (
+    property_search,
+    teig_at_point,
+    teig_boundary,
+    teig_nearby,
+)
 
 # Import the MCP ASGI apps
 from mcp_servers.db_server import db_app
@@ -86,7 +96,11 @@ from mcp_servers.docs_server import docs_app
 from mcp_servers.vector_server import vector_app
 from mcp_servers.map_server import map_app
 from mcp_servers.search_server import search_app
+<<<<<<< Updated upstream
 from mcp_servers.osm_server import osm_app
+=======
+from mcp_servers.matrikkel_server import matrikkel_app
+>>>>>>> Stashed changes
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +144,11 @@ async def lifespan(app):
                 async with vector_app.lifespan(app):
                     async with map_app.lifespan(app):
                         async with search_app.lifespan(app):
+<<<<<<< Updated upstream
                             async with osm_app.lifespan(app):
+=======
+                            async with matrikkel_app.lifespan(app):
+>>>>>>> Stashed changes
                                 await init_db_pool()
                                 await client.start()
                                 manager.start_cleanup_loop()
@@ -708,7 +726,11 @@ app = Starlette(
         Mount("/mcp/vector", app=vector_app),
         Mount("/mcp/map",    app=map_app),
         Mount("/mcp/search", app=search_app),
+<<<<<<< Updated upstream
         Mount("/mcp/osm",    app=osm_app),
+=======
+        Mount("/mcp/matrikkel", app=matrikkel_app),
+>>>>>>> Stashed changes
 
         # Auth endpoints
         Route("/api/auth/register", endpoint=register, methods=["POST"]),
@@ -753,6 +775,12 @@ app = Starlette(
 
         # Usage tracking
         Route("/api/usage",     endpoint=get_usage,     methods=["GET"]),
+
+        # Matrikkel / EiendomskartTeig
+        Route("/api/matrikkel/teig/nearby", endpoint=teig_nearby, methods=["GET"]),
+        Route("/api/matrikkel/teig/at-point", endpoint=teig_at_point, methods=["GET"]),
+        Route("/api/matrikkel/teig/{teig_id}/boundary", endpoint=teig_boundary, methods=["GET"]),
+        Route("/api/matrikkel/property/search", endpoint=property_search, methods=["GET"]),
 
         # Miscellaneous
         Route("/api/health",    endpoint=health,        methods=["GET"]),

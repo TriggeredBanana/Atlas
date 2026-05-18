@@ -6,7 +6,11 @@
 #   - docs_server.py    — Azure Blob PDF tools
 #   - vector_server.py  — PostGIS / Shapely spatial analysis tools
 #   - search_server.py  — Document search (full-text, fuzzy, hybrid)
+<<<<<<< Updated upstream
 #   - osm_server.py     — OSM Nominatim geocoding + Overpass feature queries
+=======
+#   - matrikkel_server.py — MatrikkelenEiendomskartTeig parcel tools
+>>>>>>> Stashed changes
 #
 # Inactive / planned (not mounted):
 #   - postgis_raster  — PostGIS raster analysis tools

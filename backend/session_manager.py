@@ -231,9 +231,15 @@ class SessionManager:
                     "url": f"{SERVER_BASE_URL}/mcp/search/mcp",
                     "tools": ["*"],
                 },
+<<<<<<< Updated upstream
                 "osm": {
                     "type": "http",
                     "url": f"{SERVER_BASE_URL}/mcp/osm/mcp",
+=======
+                "matrikkel": {
+                    "type": "http",
+                    "url": f"{SERVER_BASE_URL}/mcp/matrikkel/mcp",
+>>>>>>> Stashed changes
                     "tools": ["*"],
                 },
             },

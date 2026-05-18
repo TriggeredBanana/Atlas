@@ -378,6 +378,7 @@ function normalizeServerAlias(serverName) {
     geo_server: 'geo',
     vector_server: 'vector',
     map_server: 'map',
+    matrikkel_server: 'matrikkel',
   };
   return aliases[normalized] || normalized;
 }

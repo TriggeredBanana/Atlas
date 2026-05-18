@@ -112,6 +112,55 @@
       "hidden": true
     },
     {
+      "name": "Eiendomsteig i punkt",
+      "icon": "MapPin",
+      "server": "matrikkel",
+      "category": "Matrikkel",
+      "desc": "Finn matrikkel-teig som inneholder eller krysser et koordinatpunkt",
+      "mcpTool": "matrikkel-find_property_parcel_at_point",
+      "featured": true
+    },
+    {
+      "name": "Eiendomsteiger nær punkt",
+      "icon": "MapPin",
+      "server": "matrikkel",
+      "category": "Matrikkel",
+      "desc": "Finn eiendomsteiger innenfor en begrenset radius fra et punkt",
+      "mcpTool": "matrikkel-find_property_parcels_near_point",
+      "featured": false,
+      "hidden": true
+    },
+    {
+      "name": "Eiendomsgrense",
+      "icon": "Landmark",
+      "server": "matrikkel",
+      "category": "Matrikkel",
+      "desc": "Hent grensegeometri for en teig basert på teigid",
+      "mcpTool": "matrikkel-get_property_boundary",
+      "featured": false,
+      "hidden": true
+    },
+    {
+      "name": "Matrikkelsøk",
+      "icon": "Search",
+      "server": "matrikkel",
+      "category": "Matrikkel",
+      "desc": "Søk etter eiendom med kommunenummer, gårdsnummer, bruksnummer og eventuelt feste/seksjon",
+      "mcpTool": "matrikkel-search_property_by_identifier",
+      "featured": false,
+      "hidden": true
+    },
+    {
+      "name": "Eiendomskontekst",
+      "icon": "Landmark",
+      "server": "matrikkel",
+      "category": "Matrikkel",
+      "desc": "Oppsummer kompakt eiendomskontekst for et koordinatpunkt uten stor geometri",
+      "mcpTool": "matrikkel-summarize_property_context_for_point",
+      "featured": false,
+      "hidden": true
+    },
+    {
       "name": "Fulltekstsøk",
       "icon": "Search",
       "server": "search",

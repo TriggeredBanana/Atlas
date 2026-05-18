@@ -1,8 +1,9 @@
     import { useEffect, useEffectEvent } from "react";
-    import { MapContainer, TileLayer, WMSTileLayer, GeoJSON, useMap } from "react-leaflet";
+    import { MapContainer, TileLayer, WMSTileLayer, GeoJSON, useMap, useMapEvents } from "react-leaflet";
     import { BaseMapSwitcher } from "./MapLayers";
     import L from "leaflet";
     import { DrawToolBar } from "./DrawToolBar";
+    import { Loader2, MapPinned } from "lucide-react";
 
     const NORWAY_BOUNDS = L.latLngBounds([55.0, 2.0], [73.0, 34.0]);
 
@@ -76,7 +77,42 @@
         return null;
     }
 
-    function Map({ layers, onToggleLayer, drawnLayers, onLayerCreated, onLayerUpdated, onLayerRemoved, flyTarget, onFlyDone }) {
+    function ParcelLookupClickHandler({ enabled, onLookup }) {
+        useMapEvents({
+            click(event) {
+                if (!enabled || !onLookup) return;
+                onLookup({
+                    lat: event.latlng.lat,
+                    lon: event.latlng.lng,
+                });
+            },
+        });
+
+        return null;
+    }
+
+    function ParcelLookupButton({ enabled, status, onToggle }) {
+        const loading = status === 'loading';
+        const title = enabled ? 'Slå av eiendomsoppslag' : 'Slå på eiendomsoppslag';
+
+        return (
+            <div className="parcel-lookup-control">
+                <button
+                    type="button"
+                    className={`parcel-lookup-button${enabled ? ' active' : ''}${status === 'error' ? ' error' : ''}`}
+                    aria-pressed={enabled}
+                    title={title}
+                    onClick={onToggle}
+                >
+                    {loading
+                        ? <Loader2 size={20} strokeWidth={2.2} className="parcel-lookup-spinner" />
+                        : <MapPinned size={20} strokeWidth={2.2} />}
+                </button>
+            </div>
+        );
+    }
+
+    function Map({ layers, onToggleLayer, drawnLayers, onLayerCreated, onLayerUpdated, onLayerRemoved, flyTarget, onFlyDone, parcelLookupEnabled, parcelLookupStatus, onToggleParcelLookup, onParcelLookup }) {
         const center = [65.0, 15.0];
 
         return (
@@ -91,6 +127,10 @@
                 >
                     <DynamicBounds />
                     <MapResizeObserver />
+                    <ParcelLookupClickHandler
+                        enabled={parcelLookupEnabled}
+                        onLookup={onParcelLookup}
+                    />
                     <DrawToolBar
                         drawnLayers={drawnLayers}
                         onLayerCreated={onLayerCreated}
@@ -121,6 +161,11 @@
                 </MapContainer>
 
                 <BaseMapSwitcher layers={layers} onToggleLayer={onToggleLayer} />
+                <ParcelLookupButton
+                    enabled={parcelLookupEnabled}
+                    status={parcelLookupStatus}
+                    onToggle={onToggleParcelLookup}
+                />
             </div>
         );
     }

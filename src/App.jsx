@@ -175,6 +175,8 @@ function App() {
 
   const [drawnLayers, setDrawnLayers] = useState([]);
   const [selectedTools, setSelectedTools] = useState([]);
+  const [parcelLookupEnabled, setParcelLookupEnabled] = useState(false);
+  const [parcelLookupStatus, setParcelLookupStatus] = useState('idle'); // 'idle' | 'loading' | 'error'
 
   const toggleTool = (tool) => {
     setSelectedTools(prev => {
@@ -186,7 +188,7 @@ function App() {
 
   const clearSelectedTools = () => setSelectedTools([]);
 
-  const upsertDrawnLayer = (info, options = {}) => {
+  const upsertDrawnLayer = useCallback((info, options = {}) => {
     setDrawnLayers(previousLayers => {
       const hasExistingLayer = previousLayers.some(layer => layer.id === info.id);
 
@@ -215,7 +217,7 @@ function App() {
         }).catch(() => { /* fire-and-forget */ });
       }
     }
-  };
+  }, []);
 
   const setDrawnLayerVisible = (id, visible) => {
     setDrawnLayers(prev => prev.map(l => l.id === id ? { ...l, visible } : l));
@@ -254,6 +256,49 @@ function App() {
   };
 
   const [flyTarget, setFlyTarget] = useState(null);
+
+  const handleParcelLookup = useCallback(async ({ lat, lon }) => {
+    setParcelLookupStatus('loading');
+    try {
+      const params = new URLSearchParams({
+        lat: String(lat),
+        lon: String(lon),
+        limit: '3',
+        includeGeometry: 'true',
+      });
+      const res = await apiFetch(`/api/matrikkel/teig/at-point?${params.toString()}`);
+      if (!res.ok) {
+        throw new Error(`Matrikkel lookup failed with status ${res.status}`);
+      }
+
+      const data = await res.json();
+      const featureCollection = data.featureCollection;
+      const firstFeature = featureCollection?.features?.[0];
+      if (!firstFeature) {
+        setParcelLookupStatus('error');
+        return;
+      }
+
+      const props = firstFeature.properties || data.results?.[0] || {};
+      const teigid = props.teigid || `point-${Date.now()}`;
+      const layerId = `matrikkel-teig-${teigid}`;
+      const layerName = props.matrikkelnummertekst
+        ? `Teig ${props.matrikkelnummertekst}`
+        : `Teig ${teigid}`;
+
+      upsertDrawnLayer({
+        id: layerId,
+        name: layerName,
+        shape: 'Matrikkel teig',
+        visible: true,
+        geoJson: featureCollection,
+      });
+      setFlyTarget(layerId);
+      setParcelLookupStatus('idle');
+    } catch {
+      setParcelLookupStatus('error');
+    }
+  }, [upsertDrawnLayer]);
 
   async function handleHeaderLogout() {
     try {
@@ -326,6 +371,10 @@ function App() {
             onLayerRemoved={removeDrawnLayer}
             flyTarget={flyTarget}
             onFlyDone={() => setFlyTarget(null)}
+            parcelLookupEnabled={parcelLookupEnabled}
+            parcelLookupStatus={parcelLookupStatus}
+            onToggleParcelLookup={() => setParcelLookupEnabled(enabled => !enabled)}
+            onParcelLookup={handleParcelLookup}
           />
         </main>
       </div>

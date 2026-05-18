@@ -668,6 +668,51 @@
   border-color: var(--primary-color);
 }
 
+.parcel-lookup-control {
+  position: absolute;
+  top: clamp(8px, 1.5vw, 16px);
+  right: calc(clamp(8px, 1.5vw, 16px) + clamp(42px, 4.5vw, 52px));
+  z-index: 1000;
+}
+
+.parcel-lookup-button {
+  width: clamp(36px, 4vw, 44px);
+  height: clamp(36px, 4vw, 44px);
+  border-radius: 10px;
+  border: 1px solid var(--soft-bg);
+  background: var(--bg);
+  color: var(--menus);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
+  transition: background 0.2s, color 0.2s, box-shadow 0.2s, border-color 0.2s;
+}
+
+.parcel-lookup-button:hover {
+  color: var(--hover-text);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.parcel-lookup-button.active {
+  color: var(--primary-color);
+  border-color: var(--primary-color);
+}
+
+.parcel-lookup-button.error {
+  color: var(--error-color, #ff6b6b);
+  border-color: var(--error-color, #ff6b6b);
+}
+
+.parcel-lookup-spinner {
+  animation: parcelLookupSpin 0.8s linear infinite;
+}
+
+@keyframes parcelLookupSpin {
+  to { transform: rotate(360deg); }
+}
+
 .map-layers-dropdown {
   background: var(--bg);
   backdrop-filter: blur(16px);
