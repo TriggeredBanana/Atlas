@@ -49,6 +49,11 @@ async def close_pool() -> None:
         logger.info("Pool closed.")
 
 
+def is_db_available() -> bool:
+    """Return True if the connection pool is initialised and usable."""
+    return _pool is not None
+
+
 def get_connection():
     if _pool is None:
         logger.error("Database connection pool is not initialized.")
@@ -82,4 +87,3 @@ async def execute_transaction(statements: list[tuple[str, tuple | None]]) -> Non
             async with conn.cursor() as cur:
                 for sql, params in statements:
                     await cur.execute(sql, params)
-
