@@ -10,6 +10,26 @@ from sanitizer import sanitize_completed_thinking as sanitize_completed
 from sanitizer import find_pending_sql_start
 
 
+_EXPECTED_PLACEHOLDER_MAP = {
+    "[SQL query]": "[SQL-spørring]",
+    "[connection-string]": "[tilkoblingsstreng]",
+    "[azure-storage-url]": "[Azure-lagringsadresse]",
+    "[internal-url]": "[intern-url]",
+    "[mcp-endpoint]": "[MCP-endepunkt]",
+    "[file-path]": "[filsti]",
+    "[table]": "[tabell]",
+    "[database-index]": "[databaseindeks]",
+    "[database-reference]": "[database-referanse]",
+    "[thinking truncated]": "[tankeprosess avkortet]",
+}
+
+
+def _expected(text: str) -> str:
+    for old, new in _EXPECTED_PLACEHOLDER_MAP.items():
+        text = text.replace(old, new)
+    return text
+
+
 def _join(*parts: str) -> str:
     return "".join(parts)
 
@@ -146,6 +166,48 @@ cases = [
         "Session A1B2C3D4-E5F6-7890-ABCD-EF1234567890 expired",
         ["[id]"],
         ["A1B2C3D4"],
+    ),
+    (
+        "DB id assignment: chat_id",
+        "I found chat_id = 'abc123-internal' while checking context",
+        ["[id]"],
+        ["chat_id", "abc123-internal"],
+    ),
+    (
+        "DB id assignment: document_id colon",
+        "The relevant document_id: 987654 is used for lookup",
+        ["[id]"],
+        ["document_id", "987654"],
+    ),
+    (
+        "DB id assignment: generic id",
+        "The row has id: drawn-1234-layer",
+        ["[id]"],
+        ["drawn-1234-layer"],
+    ),
+    (
+        "Generated internal id",
+        "The selected geometry is geo_e82c3960 in the layer payload",
+        ["[id]"],
+        ["geo_e82c3960"],
+    ),
+    (
+        "Generated drawn layer id",
+        "The tool returned drawn-1716040123456-a1b2c3 for the preview layer",
+        ["[id]"],
+        ["drawn-1716040123456-a1b2c3"],
+    ),
+    (
+        "DB index name",
+        "The planner used idx_chunks_embedding and messages_pkey",
+        ["[database-index]"],
+        ["idx_chunks_embedding", "messages_pkey"],
+    ),
+    (
+        "DB numeric position refs",
+        "I inspected row 42, index 7 and chunk #12 before answering",
+        ["[database-reference]"],
+        ["row 42", "index 7", "chunk #12"],
     ),
 
     # --- Connection strings ---
@@ -357,6 +419,12 @@ cases = [
         ["https://40.112.72.205/api"],
         [],
     ),
+    (
+        "FP: normal assessment numbers stay",
+        "Pbl § 4-2, 200 meters and 3 alternatives are relevant.",
+        ["Pbl § 4-2", "200 meters", "3 alternatives"],
+        [],
+    ),
 
     # --- Additional connection strings ---
     (
@@ -416,14 +484,16 @@ for label, inp, must_have, must_not_have in cases:
     result = sanitize(inp)
     passed = True
     for m in must_have:
-        if m not in result:
-            print(f"FAIL [{label}]: expected {m!r} in result")
+        expected = _expected(m)
+        if expected not in result:
+            print(f"FAIL [{label}]: expected {expected!r} in result")
             print(f"  input:  {inp!r}")
             print(f"  result: {result!r}")
             passed = False
     for m in must_not_have:
-        if m in result:
-            print(f"FAIL [{label}]: should NOT contain {m!r} in result")
+        forbidden = _expected(m)
+        if forbidden in result:
+            print(f"FAIL [{label}]: should NOT contain {forbidden!r} in result")
             print(f"  input:  {inp!r}")
             print(f"  result: {result!r}")
             passed = False
@@ -456,14 +526,16 @@ for label, inp, must_have, must_not_have in completed_cases:
     result = sanitize_completed(inp)
     passed = True
     for m in must_have:
-        if m not in result:
-            print(f"FAIL [{label}]: expected {m!r} in result")
+        expected = _expected(m)
+        if expected not in result:
+            print(f"FAIL [{label}]: expected {expected!r} in result")
             print(f"  input:  {inp!r}")
             print(f"  result: {result!r}")
             passed = False
     for m in must_not_have:
-        if m in result:
-            print(f"FAIL [{label}]: should NOT contain {m!r} in result")
+        forbidden = _expected(m)
+        if forbidden in result:
+            print(f"FAIL [{label}]: should NOT contain {forbidden!r} in result")
             print(f"  input:  {inp!r}")
             print(f"  result: {result!r}")
             passed = False
@@ -480,13 +552,30 @@ for label, inp, must_have, must_not_have in completed_cases:
 
 _HOLDBACK = 128  # must match server.py _THINKING_HOLDBACK
 _MAX_THINKING_CHARS = 100_000
-_THINKING_TRUNCATED_MARKER = "[thinking truncated]"
+_THINKING_TRUNCATED_MARKER = _expected("[thinking truncated]")
+
+
+def _coalesce_thinking_boundary(text, start, candidate_end):
+    if candidate_end <= start:
+        return start
+
+    search_start = max(start, candidate_end - 32)
+    for idx in range(candidate_end - 1, search_start - 1, -1):
+        char = text[idx]
+        if char in ".!?;:,])" or char.isspace():
+            boundary = idx + 1
+            while boundary < candidate_end and text[boundary].isspace():
+                boundary += 1
+            return boundary
+
+    return candidate_end
 
 
 def _finalize_streamed_thinking(raw, chars_sent, truncated):
     final = sanitize_completed(raw)
     if truncated:
         safe_end = max(0, len(final) - _HOLDBACK)
+        safe_end = _coalesce_thinking_boundary(final, 0, safe_end)
         final = final[:safe_end]
         final = f"{final}\n{_THINKING_TRUNCATED_MARKER}" if final else _THINKING_TRUNCATED_MARKER
     return final[chars_sent:]
@@ -521,8 +610,11 @@ def simulate_streaming(full_text, chunk_sizes, max_chars=None):
             safe_end = min(safe_end, pending_sql)
             safe_end = max(safe_end, chars_sent)
         if safe_end > chars_sent:
-            deltas.append(sanitized[chars_sent:safe_end])
-            chars_sent = safe_end
+            emit_end = _coalesce_thinking_boundary(sanitized, chars_sent, safe_end)
+            if emit_end <= chars_sent:
+                emit_end = safe_end
+            deltas.append(sanitized[chars_sent:emit_end])
+            chars_sent = emit_end
         if truncated:
             break
 
@@ -532,6 +624,41 @@ def simulate_streaming(full_text, chunk_sizes, max_chars=None):
         deltas.append(final_delta)
 
     return "".join(deltas), deltas
+
+
+def simulate_thinking_to_answer_transition(full_text, chunk_sizes):
+    """Simulate server ordering when answer streaming starts after thinking."""
+    raw = ""
+    chars_sent = 0
+    events = []
+
+    pos = 0
+    for size in chunk_sizes:
+        chunk = full_text[pos:pos + size]
+        pos += size
+        if not chunk:
+            break
+        raw += chunk
+        sanitized = sanitize(raw)
+        safe_end = max(chars_sent, len(sanitized) - _HOLDBACK)
+        pending_sql = find_pending_sql_start(sanitized)
+        if pending_sql >= 0:
+            safe_end = min(safe_end, pending_sql)
+            safe_end = max(safe_end, chars_sent)
+        if safe_end > chars_sent:
+            emit_end = _coalesce_thinking_boundary(sanitized, chars_sent, safe_end)
+            if emit_end <= chars_sent:
+                emit_end = safe_end
+            events.append(("thinking", sanitized[chars_sent:emit_end]))
+            chars_sent = emit_end
+
+    # This mirrors server.py: final held-back thinking is flushed immediately
+    # before the first answer delta is sent.
+    final_delta = _finalize_streamed_thinking(raw, chars_sent, truncated=False)
+    if final_delta:
+        events.append(("thinking", final_delta))
+    events.append(("delta", "Svar starter."))
+    return events
 
 
 # (label, full_text, chunk_sizes, forbidden_in_any_delta, must_appear_in_final)
@@ -546,6 +673,13 @@ streaming_cases = [
         ["[id]"],
     ),
     (
+        "Stream: UUID split at chunk start",
+        f"a1b2c3d4-e5f6-7890-abcd-ef1234567890{_PAD}",
+        [25, 20, 300],
+        ["a1b2c3d4", "e5f6-7890", "ef123456"],
+        ["[id]"],
+    ),
+    (
         "Stream: connection string split",
         f"Using postgres://user:secret@db.host:5432/mydb{_PAD}",
         [20, 30, 300],  # split after "Using postgres://us"
@@ -556,6 +690,13 @@ streaming_cases = [
         "Stream: token split",
         f"Key is {GITHUB_TOKEN}{_PAD}",
         [12, 25, 300],  # split after "Key is ghp_a"
+        [_join("gh", "p_")],
+        ["[token]"],
+    ),
+    (
+        "Stream: token split at chunk start",
+        f"{GITHUB_TOKEN}{_PAD}",
+        [18, 20, 300],
         [_join("gh", "p_")],
         ["[token]"],
     ),
@@ -579,6 +720,27 @@ streaming_cases = [
         [16, 10, 300],  # split after "Looking at app.m"
         ["app.messages"],
         ["[table]"],
+    ),
+    (
+        "Stream: DB id assignment split",
+        f"Found chat_id = abc123-internal-reference while checking context{_PAD}",
+        [15, 12, 20, 300],
+        ["chat_id", "abc123-internal-reference"],
+        ["[id]"],
+    ),
+    (
+        "Stream: generated internal id split",
+        f"Geometry geo_e82c3960 was returned by the map tool{_PAD}",
+        [12, 8, 300],
+        ["geo_e82c3960"],
+        ["[id]"],
+    ),
+    (
+        "Stream: DB index name split",
+        f"Planner selected idx_chunks_embedding for lookup{_PAD}",
+        [18, 12, 300],
+        ["idx_chunks_embedding"],
+        ["[database-index]"],
     ),
     (
         "Stream: internal URL split",
@@ -659,8 +821,9 @@ for label, full_text, chunk_sizes, forbidden, must_in_final in streaming_cases:
 
     # Final concatenated output must contain expected text
     for m in must_in_final:
-        if m not in final:
-            print(f"FAIL [{label}]: expected {m!r} in final output")
+        expected = _expected(m)
+        if expected not in final:
+            print(f"FAIL [{label}]: expected {expected!r} in final output")
             print(f"  final: {final!r}")
             passed = False
 
@@ -677,6 +840,50 @@ for label, full_text, chunk_sizes, forbidden, must_in_final in streaming_cases:
         print(f"PASS [{label}]")
     else:
         fail += 1
+
+print("\n---- Thinking-to-answer transition tests ----")
+transition_text = (
+    "Vurderer relevante datakilder og avgrenser problemstillingen. "
+    + "x" * 180
+    + " Siste del av tankeprosessen skal vises før svaret starter."
+)
+transition_events = simulate_thinking_to_answer_transition(
+    transition_text,
+    [45, 45, 45, 45, 45, 45, 500],
+)
+transition_passed = True
+first_answer_idx = next(
+    (idx for idx, (event_type, _) in enumerate(transition_events) if event_type == "delta"),
+    None,
+)
+if first_answer_idx is None:
+    print("FAIL [Transition: thinking flush before answer]: answer delta missing")
+    transition_passed = False
+else:
+    thinking_before_answer = "".join(
+        content for event_type, content in transition_events[:first_answer_idx]
+        if event_type == "thinking"
+    )
+    thinking_after_answer = [
+        content for event_type, content in transition_events[first_answer_idx + 1:]
+        if event_type == "thinking"
+    ]
+    expected_transition = sanitize_completed(transition_text)
+    if thinking_before_answer != expected_transition:
+        print("FAIL [Transition: thinking flush before answer]: thinking incomplete before answer")
+        print(f"  before answer: {thinking_before_answer!r}")
+        print(f"  expected:      {expected_transition!r}")
+        transition_passed = False
+    if thinking_after_answer:
+        print("FAIL [Transition: thinking flush before answer]: thinking emitted after answer")
+        print(f"  after answer: {thinking_after_answer!r}")
+        transition_passed = False
+
+if transition_passed:
+    ok += 1
+    print("PASS [Transition: thinking flush before answer]")
+else:
+    fail += 1
 
 print("\n---- Truncation guard tests ----")
 truncation_input = (

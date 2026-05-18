@@ -1878,9 +1878,19 @@
   overflow-y: auto;
 }
 
-.thinking-content--streaming {
-  max-height: none;
-  overflow-y: visible;
+/* Blinking cursor rendered inline inside the thinking text while streaming */
+.thinking-cursor {
+  display: inline;
+  margin-left: 1px;
+  animation: thinking-cursor 0.8s step-end infinite;
+  opacity: 0.6;
+  font-size: 0.9em;
+  line-height: inherit;
+}
+
+@keyframes thinking-cursor {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 0; }
 }
 
 /* Chat History Panel */

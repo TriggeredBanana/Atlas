@@ -1,27 +1,26 @@
 ---
-layout: null
+layout: default
 ---
-
+<div id="top"></div>
 <div align="center">
   <img id="atlas-logo" src="assets/norkartFull.png" alt="Atlas" width="400" />
   <p><em>AI-assistert geospatialt arbeidsverktøy for kartanalyse og KU-relaterte arbeidsflyter</em></p>
 </div>
 
 ---
-
 ## Oversikt
 
 Atlas er en GeoMCP-chatbot utviklet for å assistere saksbehandlere i arbeid med norske konsekvensutredninger (KU). Assistenten kombinerer et interaktivt kart, dokumentbasert kontekst og romlige analyser i ett grensesnitt – og lar brukere stille faglige spørsmål, hente geodata og eksportere kartlag uten å forlate arbeidsflaten.
 
 ---
-
+<div id="personlige-brukere"></div>
 ## Personlige Brukere
 
 ### Registrering
 
 ![Register flow](assets/registermodal.gif)
 
-Nye brukere kan registrere seg gjennom logg inn knappen.
+Nye brukere kan registrere seg gjennom logg inn-knappen.
 
 ### Innlogging 
 
@@ -31,14 +30,14 @@ Nye brukere kan registrere seg gjennom logg inn knappen.
 Eksisterende brukere logger inn gjennom samme knapp. 
 
 ---
-
+<div id="chat"></div>
 ## Chat
 
 ### Send Melding
 
 ![Sende melding](assets/sendChat.gif) 
 
-Enkelt skriv spørsmål eller forespørsler, deretter få svar fra assistenten. 
+Skriv enkelt spørsmål eller forespørsler, og få svar fra assistenten.
 
 ---
 
@@ -64,10 +63,10 @@ Samtaler kan slettes enkeltvis fra historikkpanelet.
 Brukere kan se tokenforbruk per melding direkte i chatten.
 
 ---
+<div id="kart"></div>
+## Kart
 
-##  Kart
-
-### Kart Visninger 
+### Kartvisninger 
 ![Map overview](assets/Basemaps.gif)
 
 Kartarbeidsområdet er sentrert på Norge med bakgrunnskart fra Kartverket og flyfoto fra Esri.
@@ -90,7 +89,7 @@ Hvert kartlag kan skjules, vises på nytt eller slettes fra sidepanelet.
 AI-genererte lag og brukerens egne lag behandles likt.
 
 ---
-
+<div id="verktoy"></div>
 ## Verktøy i aksjon
 
 **1 — Velg og send verktøy**
@@ -102,7 +101,7 @@ AI-genererte lag og brukerens egne lag behandles likt.
 ![Tool result](assets/ToolUsed.png)
 
 ---
-
+<div id="eksport"></div>
 ## Eksport
 
 ![Export panel](assets/ExportLayers.gif)
@@ -115,17 +114,34 @@ Valgte lag kan eksporteres direkte fra nettleseren:
 - **PDF** — kartskisse klar for rapport
 
 ---
-
+<div id="modus"></div>
 ## Mørk og lys modus
 
 ![Dark/light mode toggle](assets/EditedLightmode.gif)
 
-Atlas støtter mørk og lys modus med persistent lagring i nettleseren.
+Atlas støtter mørk og lys modus og husker innstillingen i nettleseren.
 
 ---
+<div id="video"></div>
+## Demonstrasjonsvideo
+
+<div align="center">
+  <div class="video-wrapper">
+    <iframe
+      src="https://www.youtube.com/embed/pPJkSxmbnVA"
+      title="Atlas demonstrasjonsvideo"
+      frameborder="0"
+      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+      allowfullscreen>
+    </iframe>
+  </div>
+</div>
+
+---
+<div id="prototype"></div>
 ## Fra prototype til Atlas
 
-<p><em>Utviklingsprossessen og tidlige prototyper</em></p>
+<p><em>Utviklingsprosessen og tidlige prototyper</em></p>
 
 ### Prototype 1 — Første konsept
 
@@ -142,7 +158,7 @@ Atlas støtter mørk og lys modus med persistent lagring i nettleseren.
 ### Prototype 2 — UI-konsept
 
 <div align="center">
-  <img src="assets/TobiasProto1.png" alt="Prototype 2" width="80%">
+  <img src="assets/Tobiasproto1.png" alt="Prototype 2" width="80%">
 </div>
 
 <p align="center">
@@ -189,6 +205,18 @@ Atlas støtter mørk og lys modus med persistent lagring i nettleseren.
 </div>
 
 ---
+
+<div id="sidebar-nav">
+  <a href="#top">Tilbake til Topp</a>
+  <a href="#personlige-brukere">Brukere</a>
+  <a href="#chat">Chat</a>
+  <a href="#kart">Kart</a>
+  <a href="#verktoy">Verktøy</a>
+  <a href="#eksport">Eksport</a>
+  <a href="#modus">Modus</a>
+  <a href="#video">Video</a>
+  <a href="#prototype">Prototype</a>
+</div>
 
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 
@@ -248,6 +276,24 @@ body.dark .floating-btn:hover{
   font-size: 18px;
 }
 
+.video-wrapper{
+  position: relative;
+  width: 80%;
+  margin: 0 auto;
+  aspect-ratio: 16 / 9;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.video-wrapper iframe{
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
 .prototype-gallery{
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -269,6 +315,43 @@ body.dark .floating-btn:hover{
 
 .prototype-gallery a{
   display: block;
+}
+
+html{
+  scroll-behavior: smooth;
+}
+
+#sidebar-nav{
+  position: fixed;
+  left: 1rem;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border-radius: 14px;
+  background: rgba(255,255,255,0.75);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(0,0,0,0.08);
+  z-index: 999;
+}
+
+#sidebar-nav a{
+  text-decoration: none;
+  color: inherit;
+  font-size: 0.9rem;
+  opacity: 0.8;
+  transition: opacity 0.2s ease;
+}
+
+#sidebar-nav a:hover{
+  opacity: 1;
+}
+
+body.dark #sidebar-nav{
+  background: rgba(20,20,20,0.55);
+  border: 1px solid rgba(255,255,255,0.12);
 }
 </style>
 

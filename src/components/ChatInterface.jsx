@@ -20,10 +20,160 @@ const _TOOL_BY_MCP_ID = Object.fromEntries(
   toolCatalog.tools.map(t => [t.mcpTool, t])
 );
 
+const THINKING_BOUNDARY_CHARS = '.!?;:,)]';
+
+function isThinkingSentenceStart(char) {
+  return char === '[' || /[A-ZÆØÅ]/.test(char);
+}
+
+function isThinkingWordStart(char) {
+  return /[A-Za-zÆØÅæøå]/.test(char);
+}
+
+function normalizeThinkingText(text) {
+  if (!text) return '';
+
+  return text
+    .replace(/(\]|\))(?=[A-Za-zÆØÅæøå])/g, '$1 ')
+    .replace(/([.!?;:])(?=[A-ZÆØÅ]|\[)/g, '$1 ')
+    .replace(/,(?=[A-ZÆØÅ]|\[)/g, ', ');
+}
+
+function appendThinkingChunk(existing, incoming) {
+  if (!incoming) return existing || '';
+  if (!existing) return normalizeThinkingText(incoming);
+
+  const lastChar = existing[existing.length - 1];
+  const firstChar = incoming[0];
+  const needsSpace = (
+    !/\s/.test(lastChar)
+    && !/\s/.test(firstChar)
+    && (
+      (/[.!?;:,]/.test(lastChar) && isThinkingSentenceStart(firstChar))
+      || (THINKING_BOUNDARY_CHARS.includes(lastChar) && (isThinkingWordStart(firstChar) || firstChar === '['))
+    )
+  );
+
+  return normalizeThinkingText(`${existing}${needsSpace ? ' ' : ''}${incoming}`);
+}
+
+// Reveal settings for the thinking drain loop.  The renderer keeps a small
+// buffer while streaming so upstream pauses do not leave the cursor stranded
+// mid-word, then drains that buffer at a steady time-based pace.
+const THINKING_REVEAL_CHARS_PER_SECOND = 46;
+const THINKING_STREAM_BUFFER_CHARS = 48;
+const THINKING_MIN_VISIBLE_CHARS = 24;
+const THINKING_MAX_FRAME_CHARS = 4;
+
+function findThinkingRevealTarget(text, currentLength, isStreaming) {
+  const length = text?.length || 0;
+  if (!isStreaming) return length;
+  if (length <= THINKING_MIN_VISIBLE_CHARS) return 0;
+
+  const bufferedTarget = Math.max(0, length - THINKING_STREAM_BUFFER_CHARS);
+  if (bufferedTarget <= currentLength) return currentLength;
+
+  const searchStart = Math.max(currentLength, bufferedTarget - 48);
+  for (let idx = bufferedTarget; idx > searchStart; idx -= 1) {
+    const char = text[idx - 1];
+    if (/\s/.test(char) || THINKING_BOUNDARY_CHARS.includes(char)) return idx;
+  }
+
+  return bufferedTarget;
+}
+
 function ThinkingBlock({ thinking, isStreaming }) {
   const [expanded, setExpanded] = useState(isStreaming);
+  const contentRef = useRef(null);
+  const userScrolledUp = useRef(false);
+
+  // Revealed-text cursor — decoupled from the raw prop so bursts are smoothed.
+  const [displayedLength, setDisplayedLength] = useState(() => (
+    isStreaming ? 0 : (thinking?.length || 0)
+  ));
+  const thinkingRef = useRef(thinking);
+  const displayedLengthRef = useRef(0);
+  const revealCarryRef = useRef(0);
+
+  // Keep ref in sync every render so the interval closure always sees the
+  // latest value without needing it in the dependency array.
+  useEffect(() => {
+    thinkingRef.current = thinking;
+  });
+
+  // Scroll detection.
+  useEffect(() => {
+    const el = contentRef.current;
+    if (!el) return;
+    function onScroll() {
+      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 20;
+      userScrolledUp.current = !atBottom;
+    }
+    el.addEventListener('scroll', onScroll);
+    return () => el.removeEventListener('scroll', onScroll);
+  }, [expanded]);
+
+  // Drain loop: reveal text based on elapsed time rather than chunk arrival.
+  // During streaming, stop at a stable boundary behind the live buffer; once
+  // streaming ends, snap to the complete sanitized trace.
+  useEffect(() => {
+    if (!isStreaming) {
+      const full = thinkingRef.current?.length || 0;
+      displayedLengthRef.current = full;
+      revealCarryRef.current = 0;
+      const frameId = requestAnimationFrame(() => setDisplayedLength(full));
+      return () => cancelAnimationFrame(frameId);
+    }
+
+    let frameId = null;
+    let previousTime = performance.now();
+
+    function drain(now) {
+      const elapsedSeconds = Math.min((now - previousTime) / 1000, 0.25);
+      previousTime = now;
+
+      const target = findThinkingRevealTarget(
+        thinkingRef.current,
+        displayedLengthRef.current,
+        true,
+      );
+      const current = displayedLengthRef.current;
+      if (current < target) {
+        revealCarryRef.current += elapsedSeconds * THINKING_REVEAL_CHARS_PER_SECOND;
+        const wholeChars = Math.floor(revealCarryRef.current);
+        if (wholeChars > 0) {
+          const charsToReveal = Math.min(wholeChars, THINKING_MAX_FRAME_CHARS);
+          revealCarryRef.current = Math.max(0, revealCarryRef.current - charsToReveal);
+          const next = Math.min(current + charsToReveal, target);
+          displayedLengthRef.current = next;
+          setDisplayedLength(next);
+        }
+      } else {
+        revealCarryRef.current = 0;
+      }
+
+      frameId = requestAnimationFrame(drain);
+    }
+
+    frameId = requestAnimationFrame(drain);
+
+    return () => {
+      if (frameId !== null) cancelAnimationFrame(frameId);
+    };
+  }, [isStreaming]);
+
+  // Auto-scroll as text is revealed.
+  useLayoutEffect(() => {
+    const el = contentRef.current;
+    if (expanded && el && !userScrolledUp.current) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [displayedLength, expanded]);
 
   if (!thinking) return null;
+
+  const effectiveDisplayedLength = isStreaming ? displayedLength : thinking.length;
+  const displayText = normalizeThinkingText(thinking.slice(0, effectiveDisplayedLength));
 
   return (
     <div className={`thinking-block${isStreaming ? ' thinking-block--streaming' : ''}`}>
@@ -34,9 +184,9 @@ function ThinkingBlock({ thinking, isStreaming }) {
         </span>
         {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
       </button>
-      {expanded && (
-        <div className={`thinking-content${isStreaming ? ' thinking-content--streaming' : ''}`}>
-          {thinking}
+      {expanded && displayText && (
+        <div ref={contentRef} className={`thinking-content${isStreaming ? ' thinking-content--streaming' : ''}`}>
+          {displayText}{isStreaming && <span className="thinking-cursor" aria-hidden="true">▋</span>}
         </div>
       )}
     </div>
@@ -447,7 +597,7 @@ export function ChatInterface({ externalUser, onUserChange, drawnLayers = [], on
     // Add a placeholder assistant message that we'll update incrementally
     setMessages(prev => {
       assistantIdx.current = prev.length;
-      return [...prev, { role: 'assistant', text: '', thinking: '', streamDone: false, attachments: [] }];
+      return [...prev, { role: 'assistant', text: '', thinking: '', thinkingDone: false, streamDone: false, attachments: [] }];
     });
 
     try {
@@ -472,6 +622,10 @@ export function ChatInterface({ externalUser, onUserChange, drawnLayers = [], on
           copy[assistantIdx.current] = { role: 'assistant', text: data.error || 'En feil oppstod.', attachments: [] };
           return copy;
         });
+        if (data.chat_deleted && wasNewChat) {
+          setActiveChatIdState(null);
+          setActiveChatId(null);
+        }
         hadError = true;
         return;
       }
@@ -481,6 +635,46 @@ export function ChatInterface({ externalUser, onUserChange, drawnLayers = [], on
       const decoder = new TextDecoder();
       let buffer = '';
       let eventType = null;
+      let sawThinking = false;
+      let answerStarted = false;
+      let pendingAnswerText = '';
+      let answerFlushFrame = null;
+
+      function appendAssistantText(content) {
+        if (!content) return;
+        setMessages(prev => {
+          const idx = assistantIdx.current;
+          if (idx === null || idx >= prev.length) return prev;
+          const copy = [...prev];
+          const msg = { ...copy[idx] };
+          msg.text = (msg.text || '') + content;
+          copy[idx] = msg;
+          return copy;
+        });
+      }
+
+      function flushPendingAnswerText() {
+        if (!pendingAnswerText) return;
+        const content = pendingAnswerText;
+        pendingAnswerText = '';
+        appendAssistantText(content);
+      }
+
+      function scheduleAnswerTextFlush() {
+        if (answerFlushFrame !== null) return;
+        answerFlushFrame = requestAnimationFrame(() => {
+          answerFlushFrame = requestAnimationFrame(() => {
+            answerFlushFrame = null;
+            flushPendingAnswerText();
+          });
+        });
+      }
+
+      function cancelScheduledAnswerTextFlush() {
+        if (answerFlushFrame === null) return;
+        cancelAnimationFrame(answerFlushFrame);
+        answerFlushFrame = null;
+      }
 
       while (true) {
         const { done, value } = await reader.read();
@@ -528,26 +722,40 @@ export function ChatInterface({ externalUser, onUserChange, drawnLayers = [], on
                 }
               }
             } else if (eventType === 'thinking') {
+              sawThinking = true;
               setMessages(prev => {
                 const idx = assistantIdx.current;
                 if (idx === null || idx >= prev.length) return prev;
                 const copy = [...prev];
                 const msg = { ...copy[idx] };
-                msg.thinking = (msg.thinking || '') + payload.content;
+                msg.thinking = appendThinkingChunk(msg.thinking, payload.content);
+                msg.thinkingDone = false;
                 copy[idx] = msg;
                 return copy;
               });
             } else if (eventType === 'delta') {
-              setMessages(prev => {
-                const idx = assistantIdx.current;
-                if (idx === null || idx >= prev.length) return prev;
-                const copy = [...prev];
-                const msg = { ...copy[idx] };
-                msg.text = (msg.text || '') + payload.content;
-                copy[idx] = msg;
-                return copy;
-              });
+              if (!answerStarted) {
+                answerStarted = true;
+                setMessages(prev => {
+                  const idx = assistantIdx.current;
+                  if (idx === null || idx >= prev.length) return prev;
+                  const copy = [...prev];
+                  const msg = { ...copy[idx] };
+                  msg.thinkingDone = true;
+                  copy[idx] = msg;
+                  return copy;
+                });
+              }
+
+              if (sawThinking) {
+                pendingAnswerText += payload.content || '';
+                scheduleAnswerTextFlush();
+              } else {
+                appendAssistantText(payload.content);
+              }
             } else if (eventType === 'done') {
+              cancelScheduledAnswerTextFlush();
+              flushPendingAnswerText();
               // Process map actions
               if (payload.map_actions?.length && onLayerCreated) {
                 payload.map_actions.forEach(action => {
@@ -578,6 +786,7 @@ export function ChatInterface({ externalUser, onUserChange, drawnLayers = [], on
                 const msg = { ...copy[idx] };
                 msg.text = payload.content || msg.text;
                 msg.turnUsage = payload.usage?.turn || null;
+                msg.thinkingDone = true;
                 msg.streamDone = true;
                 copy[idx] = msg;
                 return copy;
@@ -765,7 +974,7 @@ export function ChatInterface({ externalUser, onUserChange, drawnLayers = [], on
                       </div>
                     )}
                     {msg.role === 'assistant' && msg.thinking && (
-                      <ThinkingBlock thinking={msg.thinking} isStreaming={isLoading && !msg.streamDone && i === messages.length - 1} />
+                      <ThinkingBlock thinking={msg.thinking} isStreaming={isLoading && !msg.thinkingDone && !msg.streamDone && i === messages.length - 1} />
                     )}
                     {hasText && (
                       <div className={`chat-bubble chat-bubble--${msg.role}`}>

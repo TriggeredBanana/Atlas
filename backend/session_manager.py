@@ -231,6 +231,11 @@ class SessionManager:
                     "url": f"{SERVER_BASE_URL}/mcp/search/mcp",
                     "tools": ["*"],
                 },
+                "osm": {
+                    "type": "http",
+                    "url": f"{SERVER_BASE_URL}/mcp/osm/mcp",
+                    "tools": ["*"],
+                },
             },
             on_permission_request=permission_handler,
         )
