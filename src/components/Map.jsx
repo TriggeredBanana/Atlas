@@ -66,6 +66,36 @@
                     else if (span < 2) maxZoom = 13;
                     else maxZoom = 11;
 
+                    // Hide vector panes during fly animation to prevent
+                    // SVG/Canvas distortion (buffers appearing chunky/filled)
+                    const vectorPanes = [
+                        map.getPane('overlayPane'),
+                        map.getPane('shadowPane'),
+                        map.getPane('markerPane'),
+                    ].filter(Boolean);
+
+                    vectorPanes.forEach(pane => {
+                        pane.style.transition = 'opacity 0.15s ease-out';
+                        pane.style.opacity = '0';
+                    });
+
+                    function revealLayers() {
+                        map.off('moveend', revealLayers);
+                        // Small delay to let renderer fully finish redrawing
+                        requestAnimationFrame(() => {
+                            vectorPanes.forEach(pane => {
+                                pane.style.opacity = '1';
+                            });
+                            // Clean up transition after fade-in completes
+                            setTimeout(() => {
+                                vectorPanes.forEach(pane => {
+                                    pane.style.transition = '';
+                                });
+                            }, 200);
+                        });
+                    }
+
+                    map.once('moveend', revealLayers);
                     map.flyToBounds(bounds, { padding: [60, 60], maxZoom });
                 }
                 handleFlyDone();

@@ -211,6 +211,35 @@ export function DrawToolBar({ drawnLayers = [], onLayerCreated, onLayerUpdated, 
                 .addTo(map)
                 .bindPopup('Du er her')
                 .openPopup();
+
+            // Hide vector panes during fly animation to prevent
+            // SVG/Canvas distortion (buffers appearing chunky/filled)
+            const vectorPanes = [
+                map.getPane('overlayPane'),
+                map.getPane('shadowPane'),
+                map.getPane('markerPane'),
+            ].filter(Boolean);
+
+            vectorPanes.forEach(pane => {
+                pane.style.transition = 'opacity 0.15s ease-out';
+                pane.style.opacity = '0';
+            });
+
+            function revealLayers() {
+                map.off('moveend', revealLayers);
+                requestAnimationFrame(() => {
+                    vectorPanes.forEach(pane => {
+                        pane.style.opacity = '1';
+                    });
+                    setTimeout(() => {
+                        vectorPanes.forEach(pane => {
+                            pane.style.transition = '';
+                        });
+                    }, 200);
+                });
+            }
+
+            map.once('moveend', revealLayers);
             map.flyTo(e.latlng, Math.max(map.getZoom(), 14), {
                 animate: true,
                 duration: 1.2,
