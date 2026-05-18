@@ -18,11 +18,13 @@ _TOOL_EFFICIENCY_PROMPT_LINES = (
     "1. NEVER call the same tool twice with the same parameters in the same turn.",
     "2. Use vector-buffer_features instead of calling vector-buffer in a loop.",
     "3. Use map-draw_shapes_batch instead of calling map-draw_shape multiple times.",
-    "4. Always pass session_id to every map-* and vector-* tool.",
+    "4. Always pass session_id to every map-*, vector-*, and osm-* tool.",
     "5. Use vector-get_verdensarv_sites(latitude, longitude, limit) for nearest-site queries.",
     "6. Do not make exploratory tool calls if you already know the schema or available tools.",
     "7. If a tool call fails, report the error immediately and do not repeat it with identical parameters more than once.",
     "8. When a tool returns a geometry_ref, pass it directly to downstream map/vector tools instead of rebuilding geometry by hand.",
+    "9. Use osm-osm_geocode or osm-osm_reverse_geocode for address and location lookups of Norwegian places. These return real OSM data — never guess addresses or coordinates.",
+    "10. Use osm-osm_search_features for querying buildings, roads, amenities, and POIs by area name. Always use real data over fabricating location data.",
 )
 
 

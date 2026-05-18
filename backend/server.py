@@ -9,6 +9,7 @@ Mounts MCP servers alongside the existing REST API:
   /mcp/vector/mcp  -- Vector tools    (buffer, intersection, envelope, get_coordinates, point_in_polygon, get_verdensarv_sites, voronoi)
   /mcp/map/mcp     -- Map tools       (draw_shape)
   /mcp/search/mcp  -- Search tools    (search_documents, search_documents_fuzzy, search_documents_semantic, search_hybrid, get_search_result_chunk, index_*, get_indexing_status)
+  /mcp/osm/mcp     -- OSM tools       (osm_geocode, osm_reverse_geocode, osm_lookup, osm_search_features, osm_search_features_bbox)
 
 Auth endpoints:
   POST /api/auth/register
@@ -85,6 +86,7 @@ from mcp_servers.docs_server import docs_app
 from mcp_servers.vector_server import vector_app
 from mcp_servers.map_server import map_app
 from mcp_servers.search_server import search_app
+from mcp_servers.osm_server import osm_app
 
 logger = logging.getLogger(__name__)
 
@@ -128,13 +130,14 @@ async def lifespan(app):
                 async with vector_app.lifespan(app):
                     async with map_app.lifespan(app):
                         async with search_app.lifespan(app):
-                            await init_db_pool()
-                            await client.start()
-                            manager.start_cleanup_loop()
-                            yield
-                            manager.stop_cleanup_loop()
-                            await client.stop()
-                            await close_pool()
+                            async with osm_app.lifespan(app):
+                                await init_db_pool()
+                                await client.start()
+                                manager.start_cleanup_loop()
+                                yield
+                                manager.stop_cleanup_loop()
+                                await client.stop()
+                                await close_pool()
 
 
 # ---------------------------------------------------------------------------
@@ -705,6 +708,7 @@ app = Starlette(
         Mount("/mcp/vector", app=vector_app),
         Mount("/mcp/map",    app=map_app),
         Mount("/mcp/search", app=search_app),
+        Mount("/mcp/osm",    app=osm_app),
 
         # Auth endpoints
         Route("/api/auth/register", endpoint=register, methods=["POST"]),

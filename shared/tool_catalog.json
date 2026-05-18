@@ -217,6 +217,54 @@
       "desc": "Buffer alle features i en FeatureCollection på én gang — mye raskere enn å buffre én og én",
       "mcpTool": "vector-buffer_features",
       "featured": true
+    },
+    {
+      "name": "OSM Geokoding",
+      "icon": "MapPin",
+      "server": "osm",
+      "category": "OSM",
+      "desc": "Geokod et stedsnavn eller adresse via OpenStreetMap — returnerer koordinater og grensepolygon",
+      "mcpTool": "osm-osm_geocode",
+      "featured": false,
+      "hidden": true
+    },
+    {
+      "name": "OSM Omvendt geokoding",
+      "icon": "Navigation",
+      "server": "osm",
+      "category": "OSM",
+      "desc": "Slå opp adresse og stedsinformasjon fra koordinater via OpenStreetMap",
+      "mcpTool": "osm-osm_reverse_geocode",
+      "featured": false,
+      "hidden": true
+    },
+    {
+      "name": "OSM Oppslag",
+      "icon": "Hash",
+      "server": "osm",
+      "category": "OSM",
+      "desc": "Slå opp spesifikke OSM-objekter via node/way/relation-ID",
+      "mcpTool": "osm-osm_lookup",
+      "featured": false,
+      "hidden": true
+    },
+    {
+      "name": "OSM Bygninger og steder",
+      "icon": "Building2",
+      "server": "osm",
+      "category": "OSM",
+      "desc": "Søk etter bygninger, veier, fasiliteter og POI-er i et navngitt område via Overpass",
+      "mcpTool": "osm-osm_search_features",
+      "featured": true
+    },
+    {
+      "name": "OSM Kartutsnittsøk",
+      "icon": "ScanSearch",
+      "server": "osm",
+      "category": "OSM",
+      "desc": "Søk etter OSM-objekter innenfor et kartutsnitt (bounding box) via Overpass",
+      "mcpTool": "osm-osm_search_features_bbox",
+      "featured": true
     }
   ]
 }
