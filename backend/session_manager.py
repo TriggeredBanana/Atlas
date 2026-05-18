@@ -5,7 +5,8 @@ import os
 from datetime import datetime, timedelta, timezone
 from typing import Callable, cast
 
-from copilot import CopilotClient, PermissionHandler, PermissionRequestResult
+from copilot import CopilotClient
+from copilot.session import PermissionHandler, PermissionRequestResult
 from mcp_servers.map_server import get_and_clear_shapes, store_map_context, clear_map_context
 from copilot.generated.session_events import SessionEventType
 from usage_tracker import get_or_create_tracker, discard_tracker
@@ -103,12 +104,12 @@ def _summarize_map_layer(layer: dict) -> str:
 def strict_permission_handler(*_args, **_kwargs):
     """Deny tool permission requests by default outside demo mode."""
     logger.warning("PERMISSION DENIED: args=%s kwargs=%s", _args, _kwargs)
-    return PermissionRequestResult(kind="denied-by-rules")
+    return PermissionRequestResult(kind="reject")
 
 def allow_all_permission_handler(*_args, **_kwargs):
     """Allow tool permission requests in demo mode when SDK helpers are unavailable."""
     logger.info("PERMISSION GRANTED: args=%s kwargs=%s", _args, _kwargs)
-    return PermissionRequestResult(kind="approved")
+    return PermissionRequestResult(kind="approve-once")
 
 
 class SessionManager:
@@ -191,15 +192,15 @@ class SessionManager:
         if prior_messages:
             system_content = SYSTEM_PROMPT + self._build_history_context(prior_messages)
 
-        session = await self.client.create_session({
-            "model": MODEL_NAME,
-            "system_message": {
+        session = await self.client.create_session(
+            model=MODEL_NAME,
+            system_message={
                 "mode": "append",
                 "content": system_content,
             },
-            "streaming": True,
-            "reasoning_effort": COPILOT_REASONING_EFFORT,
-            "mcp_servers": {
+            streaming=True,
+            reasoning_effort=COPILOT_REASONING_EFFORT,
+            mcp_servers={
                 "database": {
                     "type": "http",
                     "url": f"{SERVER_BASE_URL}/mcp/db/mcp",
@@ -231,8 +232,8 @@ class SessionManager:
                     "tools": ["*"],
                 },
             },
-            "on_permission_request": permission_handler,
-        })
+            on_permission_request=permission_handler,
+        )
 
         self.sessions[chat_id] = session
         self.last_active[chat_id] = datetime.now(timezone.utc)
@@ -293,7 +294,7 @@ class SessionManager:
             self.last_active[chat_id] = datetime.now(timezone.utc)
 
         try:
-            response = await session.send_and_wait({"prompt": full_message}, timeout=COPILOT_REQUEST_TIMEOUT_SECONDS)
+            response = await session.send_and_wait(full_message, timeout=COPILOT_REQUEST_TIMEOUT_SECONDS)
         except Exception:
             # Evict the broken session so the next request creates a fresh one
             # instead of retrying against a permanently dead session.
@@ -359,7 +360,7 @@ class SessionManager:
 
         unsubscribe = session.on(handler)
         try:
-            await session.send({"prompt": full_message})
+            await session.send(full_message)
 
             # Yield events as they arrive until the session goes idle.
             loop = asyncio.get_running_loop()
