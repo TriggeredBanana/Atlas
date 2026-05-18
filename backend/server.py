@@ -430,13 +430,11 @@ async def _stream_chat(copilot_session, message, map_context, chat_id, user_id, 
             elif ctype == "done":
                 reply = chunk["content"]
                 map_actions = chunk["map_actions"]
-
     except asyncio.CancelledError:
         # Client disconnected -- clean up silently.
         tracker.finalise_turn()
         logger.info("Stream cancelled (client disconnect) for chat %s", chat_id)
         return
-
     except Exception as exc:
         tracker.finalise_turn()
         logger.error("Streaming failed for chat %s: %s", chat_id, exc)
@@ -589,6 +587,10 @@ async def get_usage(request: Request):
 # Other REST handlers
 # ---------------------------------------------------------------------------
 
+async def health(request: Request):
+    return JSONResponse({"status": "ok"})
+
+
 async def get_documents(request: Request):
     loop = asyncio.get_running_loop()
     docs = await loop.run_in_executor(None, list_documents)
@@ -703,6 +705,7 @@ app = Starlette(
         Route("/api/usage",     endpoint=get_usage,     methods=["GET"]),
 
         # Miscellaneous
+        Route("/api/health",    endpoint=health,        methods=["GET"]),
         Route("/api/documents", endpoint=get_documents, methods=["GET"]),
         Route("/api/test-db",   endpoint=test_db,       methods=["GET"]),
         Route("/api/search/chunks/{chunk_id}", endpoint=test_search_chunk, methods=["GET"]),
