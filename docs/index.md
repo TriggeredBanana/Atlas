@@ -123,6 +123,22 @@ Valgte lag kan eksporteres direkte fra nettleseren:
 Atlas støtter mørk og lys modus med persistent lagring i nettleseren.
 
 ---
+
+## Demonstrasjonsvideo
+
+<div align="center">
+  <div class="video-wrapper">
+    <iframe
+      src="https://www.youtube.com/embed/pPJkSxmbnVA"
+      title="Atlas demonstrasjonsvideo"
+      frameborder="0"
+      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+      allowfullscreen>
+    </iframe>
+  </div>
+</div>
+
+---
 ## Fra prototype til Atlas
 
 <p><em>Utviklingsprossessen og tidlige prototyper</em></p>
@@ -246,6 +262,24 @@ body.dark .floating-btn:hover{
 
 .floating-btn i{
   font-size: 18px;
+}
+
+.video-wrapper{
+  position: relative;
+  width: 80%;
+  margin: 0 auto;
+  aspect-ratio: 16 / 9;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.video-wrapper iframe{
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
 }
 
 .prototype-gallery{
