@@ -192,6 +192,12 @@ cases = [
         ["geo_e82c3960"],
     ),
     (
+        "Generated drawn layer id",
+        "The tool returned drawn-1716040123456-a1b2c3 for the preview layer",
+        ["[id]"],
+        ["drawn-1716040123456-a1b2c3"],
+    ),
+    (
         "DB index name",
         "The planner used idx_chunks_embedding and messages_pkey",
         ["[database-index]"],

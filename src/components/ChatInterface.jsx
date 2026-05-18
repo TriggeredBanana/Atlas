@@ -622,6 +622,10 @@ export function ChatInterface({ externalUser, onUserChange, drawnLayers = [], on
           copy[assistantIdx.current] = { role: 'assistant', text: data.error || 'En feil oppstod.', attachments: [] };
           return copy;
         });
+        if (data.chat_deleted && wasNewChat) {
+          setActiveChatIdState(null);
+          setActiveChatId(null);
+        }
         hadError = true;
         return;
       }

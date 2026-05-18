@@ -336,15 +336,24 @@ async def chat(request: Request):
     except Exception as exc:
         logger.error("Failed to persist messages for chat %s: %s", chat_id, exc)
         await manager.discard_chat(chat_id)
+        chat_deleted = False
         if created_chat:
             try:
                 await execute(
                     "DELETE FROM app.chats WHERE id = %s AND user_id = %s",
                     (chat_id, user_id),
                 )
+                chat_deleted = True
             except Exception:
                 logger.warning("Failed to clean up unsaved chat %s", chat_id, exc_info=True)
-        return JSONResponse({"error": "Could not save chat history. Please try again."}, status_code=500)
+        return JSONResponse(
+            {
+                "error": "Could not save chat history. Please try again.",
+                "persisted": False,
+                "chat_deleted": chat_deleted,
+            },
+            status_code=500,
+        )
 
     return JSONResponse({
         "reply": reply,

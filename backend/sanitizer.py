@@ -91,7 +91,10 @@ _RE_DB_POSITION_REF = re.compile(
     re.IGNORECASE,
 )
 _RE_GENERATED_INTERNAL_ID = re.compile(
-    r"\b(?:geo|drawn|layer|feature|shape|chat|msg|doc|chunk)_[A-Fa-f0-9]{6,}\b"
+    r"\b(?:"
+    r"(?:geo|drawn|layer|feature|shape|chat|msg|doc|chunk)_[A-Fa-f0-9]{6,}"
+    r"|drawn-\d{4,}-[A-Za-z0-9]{4,}"
+    r")\b"
 )
 
 _REDACTION_CONNECTION_STRING = "[tilkoblingsstreng]"
@@ -178,16 +181,6 @@ def sanitize_completed_thinking(text: str) -> str:
     if pending_start >= 0:
         text = f"{text[:pending_start]}{_REDACTION_SQL_QUERY}"
     return text
-
-
-# Pattern that matches an ALL-CAPS SQL keyword at the start of a potential
-# statement that has NOT yet been terminated with `;`.  Used by the streaming
-# holdback logic to suppress emission while an unterminated SQL statement is
-# still accumulating.
-_RE_SQL_KEYWORD_START = re.compile(
-    r"(?:SELECT|INSERT\s+INTO|UPDATE|DELETE\s+FROM|TRUNCATE(?:\s+TABLE)?|"
-    r"CREATE\s+TABLE|ALTER\s+TABLE|DROP\s+TABLE|EXPLAIN(?:\s+ANALYZE)?)\b",
-)
 
 
 def find_pending_sql_start(text: str) -> int:
