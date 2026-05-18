@@ -185,7 +185,7 @@ function ThinkingBlock({ thinking, isStreaming }) {
         {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
       </button>
       {expanded && displayText && (
-        <div className={`thinking-content${isStreaming ? ' thinking-content--streaming' : ''}`}>
+        <div ref={contentRef} className={`thinking-content${isStreaming ? ' thinking-content--streaming' : ''}`}>
           {displayText}{isStreaming && <span className="thinking-cursor" aria-hidden="true">▋</span>}
         </div>
       )}
