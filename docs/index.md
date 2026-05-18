@@ -1,5 +1,5 @@
 ---
-layout: default
+layout: null
 ---
 
 <div align="center">
@@ -123,42 +123,192 @@ Valgte lag kan eksporteres direkte fra nettleseren:
 Atlas støtter mørk og lys modus med persistent lagring i nettleseren.
 
 ---
+## Fra prototype til Atlas
+
+<p><em>Utviklingsprossessen og tidlige prototyper</em></p>
+
+### Prototype 1 — Første konsept
+
+<div align="center">
+  <img src="assets/FirstPrototype.png" alt="Prototype 1" width="80%">
+</div>
+
+<p align="center">
+  <em>Første fungerende prototype med bufferhåndtering og kart-output.</em>
+</p>
+
+---
+
+### Prototype 2 — UI-konsept
+
+<div align="center">
+  <img src="assets/TobiasProto1.png" alt="Prototype 2" width="80%">
+</div>
+
+<p align="center">
+  <em>Første frontend-konsept med fokus på layout og brukeropplevelse.</em>
+</p>
+
+---
+
+### Prototype 3 — UI iterasjon
+
+<div align="center">
+  <img src="assets/TobiasProto2.png" alt="Prototype 3" width="80%">
+</div>
+
+<p align="center">
+  <em>Videreutvikling av panelsystem, navigasjon og visuell struktur.</em>
+</p>
+
+---
+
+### Prototype 4 — Designforfining
+
+<div align="center">
+  <img src="assets/SigurdPrototype.png" alt="Prototype 4" width="80%">
+</div>
+
+<p align="center">
+  <em>Videre modning av interaksjonsdesign og arbeidsflyt.</em>
+</p>
+
+---
+
+### Prototype 5 — Funksjonell arbeidsflyt
+
+<p><em>En interaktiv prototype som demonstrerer kartarbeid og analyse i praksis.</em></p>
+
+<div class="prototype-gallery">
+  <a href="assets/Danielproto1.png" target="_blank"><img src="assets/Danielproto1.png"></a>
+  <a href="assets/Danielproto2.png" target="_blank"><img src="assets/Danielproto2.png"></a>
+  <a href="assets/Danielproto3.png" target="_blank"><img src="assets/Danielproto3.png"></a>
+  <a href="assets/Danielproto4.png" target="_blank"><img src="assets/Danielproto4.png"></a>
+  <a href="assets/Danielproto5.png" target="_blank"><img src="assets/Danielproto5.png"></a>
+  <a href="assets/Danielproto6.png" target="_blank"><img src="assets/Danielproto6.png"></a>
+</div>
+
+---
 
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 
 <style>
-  body.dark { background: #0d1117; color: #c9d1d9; }
-  body.dark hr { border-color: #30363d; }
-  body.dark .main-content h3 { color: #c9d1d9; }
+  body{
+  background: #ffffff;
+  color: #111;
+}
 
-  #theme-toggle {
-    position: fixed;
-    top: 1.5rem;
-    right: 1.5rem;
-    z-index: 999;
-    background: #238636;
-    color: #fff;
-    border: none;
-    border-radius: 2rem;
-    padding: 0.5rem 1rem;
-    cursor: pointer;
-    font-size: 1.1rem;
-  }
+  body.dark{
+  background: #0d1117;
+  color: #c9d1d9;
+}
+
+#floating-controls{
+  position: fixed;
+  top: 1.5rem;
+  right: 1.5rem;
+  z-index: 999;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.floating-btn{
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  border: 1px solid rgba(0,0,0,0.08);
+  background: rgba(255,255,255,0.85);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: #111;
+}
+
+.floating-btn:hover{
+  transform: translateY(-2px);
+  background: rgba(255,255,255,1);
+}
+
+body.dark .floating-btn{
+  background: rgba(20, 20, 20, 0.55);
+  border: 1px solid rgba(255,255,255,0.12);
+  color: #fff;
+}
+
+body.dark .floating-btn:hover{
+  background: rgba(30, 30, 30, 0.75);
+}
+
+.floating-btn i{
+  font-size: 18px;
+}
+
+.prototype-gallery{
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.prototype-gallery img{
+  width: 100%;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  transition: transform 0.2s ease;
+  cursor: pointer;
+}
+
+.prototype-gallery img:hover{
+  transform: scale(1.02);
+}
+
+.prototype-gallery a{
+  display: block;
+}
 </style>
 
-<button id="theme-toggle"><i id="theme-icon" class="fa-solid fa-moon"></i></button>
+<div id="floating-controls">
+  <a class="floating-btn" id="github-link" href="https://github.com/KartAI/Atlas" target="_blank" aria-label="GitHub">
+   <i class="fa-brands fa-github"></i>
+  </a>
+  <button class="floating-btn" id="theme-toggle">
+   <i id="theme-icon" class="fa-solid fa-moon"></i>
+  </button>
+</div>
 
 <script>
-  const btn = document.getElementById('theme-toggle');
-  const apply = dark => {
-    document.body.classList.toggle('dark', dark);
-    document.getElementById('theme-icon').className = dark ? 'fa-solid fa-sun' : 'fa-solid fa-moon';
-    document.getElementById('atlas-logo').src = dark ? 'assets/norkartFull_white.png' : 'assets/norkartFull.png';
-  };
-  apply(localStorage.getItem('theme') === 'dark');
-  btn.addEventListener('click', () => {
-    const dark = !document.body.classList.contains('dark');
-    localStorage.setItem('theme', dark ? 'dark' : 'light');
-    apply(dark);
-  });
+ const btn = document.getElementById('theme-toggle');
+const icon = document.getElementById('theme-icon');
+const logo = document.getElementById('atlas-logo');
+
+const apply = dark => {
+  document.body.classList.toggle('dark', dark);
+
+  if (icon) {
+    icon.className = dark ? 'fa-solid fa-sun' : 'fa-solid fa-moon';
+  }
+
+  if (logo) {
+    logo.src = dark
+      ? 'assets/norkartFull_white.png'
+      : 'assets/norkartFull.png';
+  }
+};
+
+const saved = localStorage.getItem('theme');
+const systemDark = window.matchMedia &&
+  window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+apply(saved ? saved === 'dark' : systemDark);
+
+btn.addEventListener('click', () => {
+  const dark = !document.body.classList.contains('dark');
+  localStorage.setItem('theme', dark ? 'dark' : 'light');
+  apply(dark);
+});
 </script>
