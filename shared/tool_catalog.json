@@ -198,6 +198,25 @@
       "mcpTool": "map-get_drawn_layers",
       "featured": false,
       "hidden": true
+    },
+    {
+      "name": "Tegn flere lag",
+      "icon": "Layers",
+      "server": "map",
+      "category": "Kart",
+      "desc": "Tegn flere lag på kartet i ett enkelt kall — mye raskere enn å tegne ett og ett",
+      "mcpTool": "map-draw_shapes_batch",
+      "featured": true,
+      "hidden": true
+    },
+    {
+      "name": "Buffer alle",
+      "icon": "CircleDashed",
+      "server": "vector",
+      "category": "Vektor",
+      "desc": "Buffer alle features i en FeatureCollection på én gang — mye raskere enn å buffre én og én",
+      "mcpTool": "vector-buffer_features",
+      "featured": true
     }
   ]
 }

@@ -33,11 +33,21 @@ def _with_snippets(rows) -> list[dict]:
     results = []
     for r in rows:
         d = dict(r)
+        if d.get("source_blob"):
+            d["source_blob"] = _public_document_name(d["source_blob"])
         content = d.get("content", "")
         if len(content) > _SNIPPET_LENGTH:
             d["content"] = content[:_SNIPPET_LENGTH] + "…"
         results.append(d)
     return results
+
+
+def _public_document_name(source_blob: str) -> str:
+    normalized = (source_blob or "").strip().replace("\\", "/")
+    normalized = normalized.split("?", 1)[0].split("#", 1)[0]
+    if "/" in normalized:
+        normalized = normalized.rsplit("/", 1)[-1]
+    return normalized
 
 async def search_full_text(search_query: str, limit: int = 10) -> list[dict]:
     """
@@ -52,6 +62,7 @@ async def search_full_text(search_query: str, limit: int = 10) -> list[dict]:
         SELECT
             id,
             title,
+            source_blob,
             content,
             ts_rank(search_vector, plainto_tsquery('norwegian', %(q)s)) AS score
         FROM documents
@@ -146,6 +157,7 @@ async def _search_semantic_chunks(
             SELECT DISTINCT ON (d.id)
                 d.id                                              AS id,
                 d.title,
+                d.source_blob,
                 c.text                                            AS content,
                 c.heading_path,
                 c.section_title,
@@ -192,6 +204,7 @@ async def _search_semantic_documents(
         SELECT
             id,
             title,
+            source_blob,
             content,
             1 - (embedding <=> %(emb)s::vector) AS score
         FROM documents
@@ -222,6 +235,7 @@ async def search_fuzzy(search_query: str, limit: int = 10) -> list[dict]:
         SELECT
             id,
             title,
+            source_blob,
             content,
             GREATEST(
                 similarity(title, %(q)s),
@@ -310,6 +324,7 @@ async def get_chunk_by_id(chunk_id: int) -> dict | None:
             c.id            AS chunk_id,
             c.document_id,
             d.title         AS document_title,
+            d.source_blob   AS source_blob,
             c.text          AS content,
             c.heading_path,
             c.section_title,
@@ -327,7 +342,12 @@ async def get_chunk_by_id(chunk_id: int) -> dict | None:
         """,
         {"chunk_id": chunk_id},
     )
-    return dict(rows[0]) if rows else None
+    if not rows:
+        return None
+    result = dict(rows[0])
+    if result.get("source_blob"):
+        result["source_blob"] = _public_document_name(result["source_blob"])
+    return result
 
 
 # ---------------------------------------------------------------------------
