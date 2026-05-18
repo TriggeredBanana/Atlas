@@ -5,7 +5,7 @@ import remarkGfm from 'remark-gfm';
 
 import { AuthModal } from './AuthModal';
 import { ChatHistory } from './ChatHistory';
-import { TurnUsage, MonthlyUsageBar, InputAreaUsageBar } from './UsageDisplay';
+import { TurnUsage, MonthlyUsageBar, InputAreaUsageBar, TurnSources } from './UsageDisplay';
 import toolCatalog from '../../shared/tool_catalog.json';
 import {
   apiFetch,
@@ -58,6 +58,8 @@ export function ChatInterface({ externalUser, onUserChange, drawnLayers = [], on
   const [messages, setMessages] = useState([]);
   const [chats, setChats] = useState([]);
   const [chatsLoaded, setChatsLoaded] = useState(false);
+  const [chatsLoading, setChatsLoading] = useState(false);
+  const [chatListError, setChatListError] = useState('');
 
   // Input state
   const [input, setInput] = useState('');
@@ -204,6 +206,8 @@ export function ChatInterface({ externalUser, onUserChange, drawnLayers = [], on
       setMessages([]);
       setChats([]);
       setChatsLoaded(false);
+      setChatsLoading(false);
+      setChatListError('');
       setActiveTab('chat');
       setInput('');
       setAttachments([]);
@@ -263,24 +267,30 @@ export function ChatInterface({ externalUser, onUserChange, drawnLayers = [], on
 
   // Load chat list when history tab opens
   useEffect(() => {
-    if (activeTab === 'history' && user && !chatsLoaded) {
+    if (activeTab === 'history' && user && !chatsLoaded && !chatsLoading) {
       refreshChatList();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, user]);
+  }, [activeTab, user, chatsLoaded, chatsLoading]);
 
   // Helpers
 
   const refreshChatList = useCallback(async () => {
+    setChatsLoading(true);
+    setChatListError('');
     try {
       const res = await apiFetch('/api/chats');
-      if (res.ok) {
-        const data = await res.json();
-        setChats(data.chats || []);
-        setChatsLoaded(true);
+      if (!res.ok) {
+        setChatListError('Kunne ikke laste tidligere samtaler.');
+        return;
       }
+      const data = await res.json();
+      setChats(data.chats || []);
     } catch {
-      // Silently ignore; list stays stale.
+      setChatListError('Kunne ikke laste tidligere samtaler.');
+    } finally {
+      setChatsLoaded(true);
+      setChatsLoading(false);
     }
   }, []);
 
@@ -298,6 +308,9 @@ export function ChatInterface({ externalUser, onUserChange, drawnLayers = [], on
         };
         if (m.role === 'assistant' && metadata.thinking) {
           msg.thinking = metadata.thinking;
+        }
+        if (m.role === 'assistant' && metadata.turn_usage) {
+          msg.turnUsage = metadata.turn_usage;
         }
         if (metadata.tool_hints?.length) {
           msg.tools = metadata.tool_hints.map(mcpId => {
@@ -336,9 +349,12 @@ export function ChatInterface({ externalUser, onUserChange, drawnLayers = [], on
   function handleAuthSuccess(userData) {
     setUser(userData);
     setActiveChatIdState(null);
+    setActiveTab('chat');
     setMessages([]);
     setChats([]);
     setChatsLoaded(false);
+    setChatsLoading(false);
+    setChatListError('');
     setUsageSession(null);
     setUsageMonthly(null);
     onUserChange?.(userData);
@@ -488,6 +504,8 @@ export function ChatInterface({ externalUser, onUserChange, drawnLayers = [], on
                 setActiveChatIdState(payload.chat_id);
                 setActiveChatId(payload.chat_id);
                 setChatsLoaded(false);
+                setChatsLoading(false);
+                setChatListError('');
 
                 // Bulk-persist any pre-existing drawn layers to the newly created chat.
                 const persistable = drawnLayers.filter(l => l.id && l.geoJson);
@@ -561,6 +579,11 @@ export function ChatInterface({ externalUser, onUserChange, drawnLayers = [], on
                 copy[idx] = msg;
                 return copy;
               });
+              // Clear the now-dead ID so follow-up messages don't 404.
+              if (payload.chat_deleted && wasNewChat) {
+                setActiveChatIdState(null);
+                setActiveChatId(null);
+              }
             } else if (eventType === 'error') {
               setMessages(prev => {
                 const idx = assistantIdx.current;
@@ -753,7 +776,10 @@ export function ChatInterface({ externalUser, onUserChange, drawnLayers = [], on
                       </div>
                     )}
                     {msg.role === 'assistant' && msg.turnUsage && (
-                      <TurnUsage usage={msg.turnUsage} />
+                      <>
+                        <TurnSources toolCalls={msg.turnUsage?.tool_calls} />
+                        <TurnUsage usage={msg.turnUsage} />
+                      </>
                     )}
                   </div>
                 );
@@ -832,8 +858,11 @@ export function ChatInterface({ externalUser, onUserChange, drawnLayers = [], on
         <ChatHistory
           chats={chats}
           activeChatId={activeChatId}
+          isLoaded={chatsLoaded}
+          loadError={chatListError}
           onContinue={handleContinueChat}
           onDeleteMany={handleDeleteManyChats}
+          onRetryLoad={refreshChatList}
         />
       )}
     </div>

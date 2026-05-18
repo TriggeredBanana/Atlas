@@ -7,6 +7,7 @@ Tools:
 import json
 import logging
 from fastmcp import FastMCP
+from geometry_store import geometry_store
 
 logger = logging.getLogger(__name__)
 
@@ -30,22 +31,90 @@ def clear_map_context(session_id: str) -> None:
     _session_map_context.pop(session_id, None)
 
 
+def _resolve_geojson(geojson, geometry_ref: str, session_id: str):
+    """Resolve geometry from a reference ID or use the provided geojson directly."""
+    if geometry_ref and session_id:
+        cached = geometry_store.retrieve(session_id, geometry_ref)
+        if cached:
+            return cached
+    return geojson
+
+
 @mcp.tool()
-def draw_shape(geojson: dict, layer_name: str, session_id: str = "") -> dict:
+def draw_shape(layer_name: str, session_id: str = "", geojson: dict = None, geometry_ref: str = "") -> dict:
     """
     Draw a shape on the map.
 
-    geojson: a valid GeoJSON Feature or FeatureCollection representing the shape(s) to draw.
-    layer_name: the display name to give the layer on the map.
-    session_id: the current session ID, used to route the shape to the correct user.
+    Accepts either a raw GeoJSON dict OR a geometry_ref returned by a previous
+    tool call (e.g. get_verdensarv_sites, buffer, voronoi).  Using geometry_ref
+    is strongly preferred — it avoids generating large coordinate payloads.
+
+    Args:
+        layer_name: The display name to give the layer on the map.
+        session_id: The current session ID, used to route the shape to the correct user.
+        geojson: A valid GeoJSON Feature or FeatureCollection (optional if geometry_ref is provided).
+        geometry_ref: A geometry reference ID from a previous tool call (preferred over geojson).
     """
-    logger.info("draw_shape called: layer_name=%s session_id=%s", layer_name, session_id)
+    logger.info("draw_shape called: layer_name=%s session_id=%s geometry_ref=%s", layer_name, session_id, geometry_ref)
+    resolved = _resolve_geojson(geojson, geometry_ref, session_id)
+    if not resolved:
+        return {"status": "error", "message": "No geometry provided. Supply geojson or geometry_ref."}
     if session_id:
         _pending_shapes.setdefault(session_id, []).append({
             "layer_name": layer_name,
-            "geojson": geojson,
+            "geojson": resolved,
         })
     return {"status": "ok", "layer_name": layer_name}
+
+
+@mcp.tool()
+def draw_shapes_batch(shapes: str, session_id: str = "") -> dict:
+    """
+    Draw MULTIPLE layers on the map in a single call.
+    ALWAYS prefer this over calling draw_shape() multiple times.
+
+    Args:
+        shapes: A JSON array of objects, each with:
+                - "layer_name" (str): display name for this layer
+                - "geometry_ref" (str): geometry reference from a previous tool call (preferred)
+                - "geojson" (dict, optional): raw GeoJSON if no geometry_ref
+        session_id: The current session ID, used to route shapes to the correct user.
+    """
+    logger.info("draw_shapes_batch called: session_id=%s", session_id)
+    try:
+        items = json.loads(shapes) if isinstance(shapes, str) else shapes
+    except (json.JSONDecodeError, TypeError):
+        return {"status": "error", "message": "Invalid shapes JSON."}
+
+    if not isinstance(items, list) or not items:
+        return {"status": "error", "message": "shapes must be a non-empty JSON array."}
+
+    drawn = []
+    errors = []
+    for i, item in enumerate(items):
+        if not isinstance(item, dict):
+            errors.append(f"Item {i}: not an object")
+            continue
+        name = item.get("layer_name", f"Layer {i + 1}")
+        ref = item.get("geometry_ref", "")
+        raw = item.get("geojson")
+        resolved = _resolve_geojson(raw, ref, session_id)
+        if not resolved:
+            errors.append(f"Item {i} ({name}): no geometry")
+            continue
+        if session_id:
+            _pending_shapes.setdefault(session_id, []).append({
+                "layer_name": name,
+                "geojson": resolved,
+            })
+        drawn.append(name)
+
+    return {
+        "status": "ok",
+        "drawn_count": len(drawn),
+        "drawn_layers": drawn,
+        "errors": errors if errors else None,
+    }
 
 
 @mcp.tool()
