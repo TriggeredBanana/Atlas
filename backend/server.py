@@ -202,7 +202,7 @@ async def chat(request: Request):
 
     if stream:
         return StreamingResponse(
-            _stream_chat(copilot_session, message, map_context, chat_id, user_id, created_chat, tool_hints, tracker, prior_messages=prior_messages),
+            _stream_chat(copilot_session, message, map_context, chat_id, user_id, created_chat, tool_hints, tracker),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -298,7 +298,7 @@ async def chat(request: Request):
     })
 
 
-async def _stream_chat(copilot_session, message, map_context, chat_id, user_id, created_chat, tool_hints, tracker, *, prior_messages=None):
+async def _stream_chat(copilot_session, message, map_context, chat_id, user_id, created_chat, tool_hints, tracker):
     """
     Async generator that yields SSE events for a streaming chat response.
 
@@ -336,12 +336,9 @@ async def _stream_chat(copilot_session, message, map_context, chat_id, user_id, 
             return f"{text}\n{_THINKING_TRUNCATED_MARKER}"
         return _THINKING_TRUNCATED_MARKER
 
-    async def _iter_stream(session):
-        """Inner generator: converts one send_message_stream call into SSE
-        strings while updating shared state via the enclosing closure."""
-        nonlocal reply, raw_thinking, chars_sent, map_actions, thinking_truncated
+    try:
         async for chunk in manager.send_message_stream(
-            session, message,
+            copilot_session, message,
             map_context=map_context, chat_id=chat_id, tool_hints=tool_hints,
         ):
             ctype = chunk["type"]
@@ -377,62 +374,16 @@ async def _stream_chat(copilot_session, message, map_context, chat_id, user_id, 
             elif ctype == "done":
                 reply = chunk["content"]
                 map_actions = chunk["map_actions"]
-
-    # --- First streaming attempt ---
-    _stale_exc = None
-    try:
-        async for sse in _iter_stream(copilot_session):
-            yield sse
     except asyncio.CancelledError:
         # Client disconnected -- clean up silently.
         tracker.finalise_turn()
         logger.info("Stream cancelled (client disconnect) for chat %s", chat_id)
         return
     except Exception as exc:
-        if manager._is_auth_error(exc):
-            _stale_exc = exc
-        else:
-            tracker.finalise_turn()
-            logger.error("Streaming failed for chat %s: %s", chat_id, exc)
-            yield f"event: error\ndata: {json.dumps({'error': 'AI service error. Please try again.'})}\n\n"
-            return
-
-    # --- Retry after stale session (once) ---
-    if _stale_exc is not None:
-        logger.warning(
-            "Stale session for chat %s — waiting 1 s then retrying with fresh session", chat_id
-        )
-        reply = ""
-        raw_thinking = ""
-        chars_sent = 0
-        map_actions = []
-        thinking_truncated = False
-        try:
-            await asyncio.sleep(1.0)
-            await manager.restart_client()
-            copilot_session = await manager.get_or_create_for_chat(chat_id, prior_messages)
-        except Exception as setup_exc:
-            tracker.finalise_turn()
-            logger.warning(
-                "Session recreation failed for chat %s: %s — giving up", chat_id, setup_exc
-            )
-            yield f"event: error\ndata: {json.dumps({'error': 'AI service error. Please try again.'})}\n\n"
-            return
-        try:
-            async for sse in _iter_stream(copilot_session):
-                yield sse
-        except asyncio.CancelledError:
-            tracker.finalise_turn()
-            logger.info("Stream cancelled (client disconnect) for chat %s", chat_id)
-            return
-        except Exception as retry_exc:
-            tracker.finalise_turn()
-            logger.error("Retry also failed for chat %s: %s", chat_id, retry_exc)
-            if manager._is_auth_error(retry_exc):
-                yield f"event: error\ndata: {json.dumps({'error': 'GitHub Copilot authentication expired. Run \"gh auth refresh\" in the terminal and restart the server.'})}\n\n"
-            else:
-                yield f"event: error\ndata: {json.dumps({'error': 'AI service error. Please try again.'})}\n\n"
-            return
+        tracker.finalise_turn()
+        logger.error("Streaming failed for chat %s: %s", chat_id, exc)
+        yield f"event: error\ndata: {json.dumps({'error': 'AI service error. Please try again.'})}\n\n"
+        return
 
     # Flush any held-back thinking text now that no more chunks can arrive.
     if raw_thinking:

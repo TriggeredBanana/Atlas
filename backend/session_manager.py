@@ -383,10 +383,7 @@ class SessionManager:
                 raise error_holder[0]
 
         except (Exception, asyncio.CancelledError):
-            if error_holder and self._is_auth_error(error_holder[0]):
-                self._evict_all_sessions(str(error_holder[0]))
-            else:
-                self._evict_session(chat_id)
+            self._evict_session(chat_id)
             raise
         finally:
             unsubscribe()
@@ -434,53 +431,6 @@ class SessionManager:
             )
         parts.append(f"[USER MESSAGE]\n{message}")
         return "\n\n".join(parts)
-
-    # Keywords that indicate a client-level auth failure rather than an
-    # isolated session error.  When matched, all sessions are evicted.
-    _AUTH_ERROR_KEYWORDS = (
-        "not created with authentication",
-        "authentication info",
-        "custom provider",
-    )
-
-    def _is_auth_error(self, exc: BaseException) -> bool:
-        msg = str(exc).lower()
-        return any(kw in msg for kw in self._AUTH_ERROR_KEYWORDS)
-
-    def _evict_all_sessions(self, reason: str):
-        """Evict every session when a client-level auth failure is detected."""
-        count = len(self.sessions)
-        for cid in list(self.sessions.keys()):
-            unsub = self._usage_unsubscribers.pop(cid, None)
-            if unsub:
-                unsub()
-            discard_tracker(cid)
-            get_and_clear_shapes(cid)
-        self.sessions.clear()
-        self.last_active.clear()
-        logger.warning(
-            "Auth failure — evicted all %d session(s). "
-            "Run 'gh auth refresh' (or restart the server) to re-authenticate. "
-            "Reason: %s",
-            count,
-            reason,
-        )
-
-    async def restart_client(self):
-        """Replace the underlying Copilot client with a brand-new instance and
-        start it.  A fresh CopilotClient avoids any stale internal auth state
-        that survives a plain stop/start on the same object.  Called when a
-        retry session also gets an auth error, meaning the entire client
-        connection (not just one session) is stale.
-        """
-        logger.warning("Replacing Copilot client to recover from persistent auth failure…")
-        try:
-            await self.client.stop()
-        except Exception as exc:
-            logger.warning("Error stopping old Copilot client: %s", exc)
-        self.client = CopilotClient()
-        await self.client.start()
-        logger.warning("Copilot client replaced and restarted — auth should be refreshed")
 
     def _evict_session(self, chat_id: str):
         """Evict a broken session so the next request creates a fresh one."""
