@@ -158,7 +158,7 @@ Atlas støtter mørk og lys modus og husker innstillingen i nettleseren.
 ### Prototype 2 — UI-konsept
 
 <div align="center">
-  <img src="assets/TobiasProto1.png" alt="Prototype 2" width="80%">
+  <img src="assets/Tobiasproto1.png" alt="Prototype 2" width="80%">
 </div>
 
 <p align="center">
