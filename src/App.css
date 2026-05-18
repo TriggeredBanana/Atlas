@@ -184,11 +184,11 @@
 
 /* Sidebar status section */
 .sidebar-status {
-  margin-top: 550px;
-  padding: 8px;
+  margin-top: auto;
+  padding: 20px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
   border-top: 1px solid var(--border);
 }
 
