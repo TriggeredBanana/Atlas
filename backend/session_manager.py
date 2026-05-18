@@ -8,6 +8,7 @@ from typing import Callable, cast
 from copilot import CopilotClient
 from copilot.session import PermissionHandler, PermissionRequestResult
 from mcp_servers.map_server import get_and_clear_shapes, store_map_context, clear_map_context
+from mcp_auth import MCP_INTERNAL_SECRET
 from copilot.generated.session_events import SessionEventType
 from usage_tracker import get_or_create_tracker, discard_tracker
 from config import (
@@ -199,37 +200,46 @@ class SessionManager:
                 "content": system_content,
             },
             streaming=True,
-            reasoning_effort=COPILOT_REASONING_EFFORT,
+            reasoning_effort="high",
+            # MCP servers the orchestrator can invoke.
+            # The X-MCP-Internal-Token header is required by MCPAuthMiddleware
+            # so that only in-process calls are accepted.
             mcp_servers={
                 "database": {
                     "type": "http",
                     "url": f"{SERVER_BASE_URL}/mcp/db/mcp",
                     "tools": ["*"],
+                    "headers": {"X-MCP-Internal-Token": MCP_INTERNAL_SECRET},
                 },
                 "geo": {
                     "type": "http",
                     "url": f"{SERVER_BASE_URL}/mcp/geo/mcp",
                     "tools": ["*"],
+                    "headers": {"X-MCP-Internal-Token": MCP_INTERNAL_SECRET},
                 },
                 "docs": {
                     "type": "http",
                     "url": f"{SERVER_BASE_URL}/mcp/docs/mcp",
                     "tools": ["*"],
+                    "headers": {"X-MCP-Internal-Token": MCP_INTERNAL_SECRET},
                 },
                 "vector": {
                     "type": "http",
                     "url": f"{SERVER_BASE_URL}/mcp/vector/mcp",
                     "tools": ["*"],
+                    "headers": {"X-MCP-Internal-Token": MCP_INTERNAL_SECRET},
                 },
                 "map": {
                     "type": "http",
                     "url": f"{SERVER_BASE_URL}/mcp/map/mcp",
                     "tools": ["*"],
+                    "headers": {"X-MCP-Internal-Token": MCP_INTERNAL_SECRET},
                 },
                 "search": {
                     "type": "http",
                     "url": f"{SERVER_BASE_URL}/mcp/search/mcp",
                     "tools": ["*"],
+                    "headers": {"X-MCP-Internal-Token": MCP_INTERNAL_SECRET},
                 },
             },
             on_permission_request=permission_handler,
