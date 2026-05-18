@@ -76,24 +76,57 @@ _RE_FILE_PATH = re.compile(
     r"(?:[A-Za-z]:\\(?:[\w\s\-\.]+\\)+[\w\s\-\.]*"   # Windows: C:\Users\...
     r"|/(?:home|var|etc|opt|usr|srv|app|root|tmp|data)/\S+)",  # Unix absolute paths
 )
+_RE_DB_ID_ASSIGNMENT = re.compile(
+    r"\b(?:[a-z][a-z0-9_]*_id|id|uuid)\b\s*(?:=|:|is)\s*"
+    r"(?:['\"])?[A-Za-z0-9][A-Za-z0-9_.:-]{2,}(?:['\"])?",
+    re.IGNORECASE,
+)
+_RE_DB_INDEX_NAME = re.compile(
+    r"\b(?:idx|ix)_[A-Za-z0-9_]+\b"
+    r"|\b[A-Za-z0-9_]+_(?:idx|index|pkey|fkey|key)\b",
+    re.IGNORECASE,
+)
+_RE_DB_POSITION_REF = re.compile(
+    r"\b(?:row|record|index|chunk|document|message|rad|post|indeks|dokument|melding)\s*#?\s*\d+\b",
+    re.IGNORECASE,
+)
+_RE_GENERATED_INTERNAL_ID = re.compile(
+    r"\b(?:geo|drawn|layer|feature|shape|chat|msg|doc|chunk)_[A-Fa-f0-9]{6,}\b"
+)
+
+_REDACTION_CONNECTION_STRING = "[tilkoblingsstreng]"
+_REDACTION_TOKEN = "[token]"
+_REDACTION_AZURE_STORAGE_URL = "[Azure-lagringsadresse]"
+_REDACTION_FILE_PATH = "[filsti]"
+_REDACTION_TABLE = "[tabell]"
+_REDACTION_DB_INDEX = "[databaseindeks]"
+_REDACTION_DB_REFERENCE = "[database-referanse]"
+_REDACTION_ID = "[id]"
+_REDACTION_INTERNAL_URL = "[intern-url]"
+_REDACTION_MCP_ENDPOINT = "[MCP-endepunkt]"
+_REDACTION_SQL_QUERY = "[SQL-spørring]"
 
 # ---------------------------------------------------------------------------
 # Ordered rule table  (most-specific → least-specific)
 # ---------------------------------------------------------------------------
 
 _PRE_SQL_RULES: list[tuple[re.Pattern, str]] = [
-    (_RE_CONN_STRING,   "[connection-string]"),
-    (_RE_TOKEN,         "[token]"),
-    (_RE_AZURE_BLOB,    "[azure-storage-url]"),
-    (_RE_AZURE_SAS_SIG, "[token]"),
-    (_RE_FILE_PATH,     "[file-path]"),
+    (_RE_CONN_STRING,   _REDACTION_CONNECTION_STRING),
+    (_RE_TOKEN,         _REDACTION_TOKEN),
+    (_RE_AZURE_BLOB,    _REDACTION_AZURE_STORAGE_URL),
+    (_RE_AZURE_SAS_SIG, _REDACTION_TOKEN),
+    (_RE_FILE_PATH,     _REDACTION_FILE_PATH),
 ]
 
 _POST_SQL_RULES: list[tuple[re.Pattern, str]] = [
-    (_RE_SCHEMA_TABLE,  "[table]"),
-    (_RE_UUID,          "[id]"),
-    (_RE_INTERNAL_URL,  "[internal-url]"),
-    (_RE_MCP_PATH,      "[mcp-endpoint]"),
+    (_RE_SCHEMA_TABLE,  _REDACTION_TABLE),
+    (_RE_UUID,          _REDACTION_ID),
+    (_RE_DB_ID_ASSIGNMENT, _REDACTION_ID),
+    (_RE_GENERATED_INTERNAL_ID, _REDACTION_ID),
+    (_RE_DB_INDEX_NAME, _REDACTION_DB_INDEX),
+    (_RE_DB_POSITION_REF, _REDACTION_DB_REFERENCE),
+    (_RE_INTERNAL_URL,  _REDACTION_INTERNAL_URL),
+    (_RE_MCP_PATH,      _REDACTION_MCP_ENDPOINT),
 ]
 
 # ---------------------------------------------------------------------------
@@ -113,7 +146,7 @@ def _redact_sql_statements(text: str) -> str:
             break
 
         parts.append(text[pos:match.start()])
-        parts.append("[SQL query]")
+        parts.append(_REDACTION_SQL_QUERY)
 
         semicolon = text.find(";", match.end())
         if semicolon < 0:
@@ -143,7 +176,7 @@ def sanitize_completed_thinking(text: str) -> str:
     text = sanitize_thinking(text)
     pending_start = find_pending_sql_start(text)
     if pending_start >= 0:
-        text = f"{text[:pending_start]}[SQL query]"
+        text = f"{text[:pending_start]}{_REDACTION_SQL_QUERY}"
     return text
 
 

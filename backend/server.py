@@ -374,23 +374,51 @@ async def _stream_chat(copilot_session, message, map_context, chat_id, user_id, 
     # are never partially emitted before the sanitizer can recognise them.
     _THINKING_HOLDBACK = 128
     _MAX_THINKING_CHARS = 100_000
-    _THINKING_TRUNCATED_MARKER = "[thinking truncated]"
+    _THINKING_TRUNCATED_MARKER = "[tankeprosess avkortet]"
 
     reply = ""
     raw_thinking = ""       # unsanitized accumulation for full-text re-sanitization
     chars_sent = 0          # sanitized chars already emitted to client
     map_actions = []
     thinking_truncated = False
+    thinking_finalized = False
+
+    def _coalesce_thinking_boundary(text: str, start: int, candidate_end: int) -> int:
+        if candidate_end <= start:
+            return start
+
+        search_start = max(start, candidate_end - 32)
+        for idx in range(candidate_end - 1, search_start - 1, -1):
+            char = text[idx]
+            if char in ".!?;:,])" or char.isspace():
+                boundary = idx + 1
+                while boundary < candidate_end and text[boundary].isspace():
+                    boundary += 1
+                return boundary
+
+        return candidate_end
 
     def _finalize_thinking_text(raw_text: str, *, truncated: bool) -> str:
         text = _sanitize_completed_thinking(raw_text)
         if not truncated:
             return text
         safe_end = max(0, len(text) - _THINKING_HOLDBACK)
+        safe_end = _coalesce_thinking_boundary(text, 0, safe_end)
         text = text[:safe_end]
         if text:
             return f"{text}\n{_THINKING_TRUNCATED_MARKER}"
         return _THINKING_TRUNCATED_MARKER
+
+    def _finalize_pending_thinking_delta() -> str:
+        nonlocal chars_sent, thinking_finalized
+        if not raw_thinking or thinking_finalized:
+            return ""
+
+        full_sanitized = _finalize_thinking_text(raw_thinking, truncated=thinking_truncated)
+        remaining = full_sanitized[chars_sent:] if len(full_sanitized) > chars_sent else ""
+        chars_sent = len(full_sanitized)
+        thinking_finalized = True
+        return remaining
 
     try:
         async for chunk in manager.send_message_stream(
@@ -399,6 +427,8 @@ async def _stream_chat(copilot_session, message, map_context, chat_id, user_id, 
         ):
             ctype = chunk["type"]
             if ctype == "thinking":
+                if thinking_finalized:
+                    continue
                 if thinking_truncated:
                     continue
                 raw_thinking += chunk["content"]
@@ -422,12 +452,21 @@ async def _stream_chat(copilot_session, message, map_context, chat_id, user_id, 
                     safe_end = max(safe_end, chars_sent)  # never go backwards
 
                 if safe_end > chars_sent:
-                    delta = full_sanitized[chars_sent:safe_end]
+                    emit_end = _coalesce_thinking_boundary(full_sanitized, chars_sent, safe_end)
+                    if emit_end <= chars_sent:
+                        emit_end = safe_end
+                    delta = full_sanitized[chars_sent:emit_end]
                     yield f"event: thinking\ndata: {json.dumps({'content': delta})}\n\n"
-                    chars_sent = safe_end
+                    chars_sent = emit_end
             elif ctype == "delta":
+                remaining = _finalize_pending_thinking_delta()
+                if remaining:
+                    yield f"event: thinking\ndata: {json.dumps({'content': remaining})}\n\n"
                 yield f"event: delta\ndata: {json.dumps({'content': chunk['content']})}\n\n"
             elif ctype == "done":
+                remaining = _finalize_pending_thinking_delta()
+                if remaining:
+                    yield f"event: thinking\ndata: {json.dumps({'content': remaining})}\n\n"
                 reply = chunk["content"]
                 map_actions = chunk["map_actions"]
     except asyncio.CancelledError:
@@ -442,11 +481,9 @@ async def _stream_chat(copilot_session, message, map_context, chat_id, user_id, 
         return
 
     # Flush any held-back thinking text now that no more chunks can arrive.
-    if raw_thinking:
-        full_sanitized = _finalize_thinking_text(raw_thinking, truncated=thinking_truncated)
-        if len(full_sanitized) > chars_sent:
-            remaining = full_sanitized[chars_sent:]
-            yield f"event: thinking\ndata: {json.dumps({'content': remaining})}\n\n"
+    remaining = _finalize_pending_thinking_delta()
+    if remaining:
+        yield f"event: thinking\ndata: {json.dumps({'content': remaining})}\n\n"
 
     # Assign stable layer_ids to AI-generated layers (mirrors non-streaming path).
     for action in map_actions:
