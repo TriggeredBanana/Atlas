@@ -1,7 +1,19 @@
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faChevronLeft, faChevronRight } from '@fortawesome/free-solid-svg-icons';
+import { faChevronLeft, faChevronRight, faServer, faRobot } from '@fortawesome/free-solid-svg-icons';
 
-export function Sidebar({ items, activePanel, onSelect, collapsed, onToggleCollapse }) {
+const SERVER_LABELS = {
+    connected:    'Server tilkoblet',
+    disconnected: 'Server frakoblet',
+    checking:     'Sjekker server…',
+};
+
+const AI_LABELS = {
+    active: 'KI-agent aktiv',
+    error:  'KI-agent feil',
+    idle:   'KI-agent inaktiv',
+};
+
+export function Sidebar({ items, activePanel, onSelect, collapsed, onToggleCollapse, serverStatus = 'checking', aiStatus = 'idle' }) {
     return (
         <nav className={`sidebar ${collapsed ? 'sidebar--collapsed' : ''}`}>
             <div className="sidebar-header">
@@ -28,6 +40,36 @@ export function Sidebar({ items, activePanel, onSelect, collapsed, onToggleColla
                 </li>
                 ))}
             </ul>
+            <div className="sidebar-status">
+                <div
+                    className="sidebar-status-item"
+                    title={SERVER_LABELS[serverStatus] ?? SERVER_LABELS.checking}
+                >
+                    <FontAwesomeIcon
+                        icon={faServer}
+                        className={`sidebar-status-icon sidebar-status-icon--${serverStatus}`}
+                    />
+                    {!collapsed && (
+                        <span className="sidebar-status-label">
+                            {SERVER_LABELS[serverStatus] ?? SERVER_LABELS.checking}
+                        </span>
+                    )}
+                </div>
+                <div
+                    className="sidebar-status-item"
+                    title={AI_LABELS[aiStatus] ?? AI_LABELS.idle}
+                >
+                    <FontAwesomeIcon
+                        icon={faRobot}
+                        className={`sidebar-status-icon sidebar-status-icon--${aiStatus}`}
+                    />
+                    {!collapsed && (
+                        <span className="sidebar-status-label">
+                            {AI_LABELS[aiStatus] ?? AI_LABELS.idle}
+                        </span>
+                    )}
+                </div>
+            </div>
         </nav>
     )
 }

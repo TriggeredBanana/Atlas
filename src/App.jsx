@@ -21,6 +21,8 @@ function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [theme, setTheme] =useState(() => localStorage.getItem('theme') || 'dark');
   const [chatUser, setChatUser] = useState(null);
+  const [serverStatus, setServerStatus] = useState('checking'); // 'checking' | 'connected' | 'disconnected'
+  const [aiStatus, setAiStatus] = useState('idle'); // 'idle' | 'active' | 'error'
 
   // Resizable content panel
   const [panelWidth, setPanelWidth] = useState(null); // null = CSS default (40vw)
@@ -92,6 +94,21 @@ function App() {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('theme', theme);
   }, [theme]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function checkHealth() {
+      try {
+        const res = await fetch('/api/health');
+        if (!cancelled) setServerStatus(res.ok ? 'connected' : 'disconnected');
+      } catch {
+        if (!cancelled) setServerStatus('disconnected');
+      }
+    }
+    checkHealth();
+    const id = setInterval(checkHealth, 30000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
 
   useEffect(() => {
     async function syncChatUser() {
@@ -268,6 +285,8 @@ function App() {
           onSelect={handleSelect}
           collapsed={sidebarCollapsed}
           onToggleCollapse={() => setSidebarCollapsed(c => !c)}
+          serverStatus={serverStatus}
+          aiStatus={aiStatus}
         />
         <ContentPanel 
           activePanel={activePanel} 
@@ -286,6 +305,7 @@ function App() {
           onToggleTool={toggleTool}
           onClearSelectedTools={clearSelectedTools}
           onGoToChat={() => setActivePanel('Chatbot')}
+          onAiStatusChange={setAiStatus}
           panelWidth={panelWidth} />
 
         {activePanel && (

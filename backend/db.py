@@ -87,4 +87,3 @@ async def execute_transaction(statements: list[tuple[str, tuple | None]]) -> Non
             async with conn.cursor() as cur:
                 for sql, params in statements:
                     await cur.execute(sql, params)
-

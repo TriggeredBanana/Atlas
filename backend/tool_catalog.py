@@ -6,6 +6,24 @@ logger = logging.getLogger(__name__)
 
 _TOOL_CATALOG_PATH = Path(__file__).resolve().parents[1] / "shared" / "tool_catalog.json"
 _MAX_TOOL_HINTS = 10
+_DATABASE_PROMPT_LINES = (
+    "DATABASE (server: database)",
+    "  database-list_tables               - List approved tables and schemas available through this tool.",
+    "  database-describe_table            - Columns, types, keys, and spatial metadata for one table.",
+    "  database-get_schema_overview       - Full approved schema overview. Call once per session if needed.",
+    "  database-explain_query             - Validate a read-only SELECT query before execution.",
+    "  database-query_database            - Execute a read-only SELECT against approved schemas.",
+)
+_TOOL_EFFICIENCY_PROMPT_LINES = (
+    "1. NEVER call the same tool twice with the same parameters in the same turn.",
+    "2. Use vector-buffer_features instead of calling vector-buffer in a loop.",
+    "3. Use map-draw_shapes_batch instead of calling map-draw_shape multiple times.",
+    "4. Always pass session_id to every map-* and vector-* tool.",
+    "5. Use vector-get_verdensarv_sites(latitude, longitude, limit) for nearest-site queries.",
+    "6. Do not make exploratory tool calls if you already know the schema or available tools.",
+    "7. If a tool call fails, report the error immediately and do not repeat it with identical parameters more than once.",
+    "8. When a tool returns a geometry_ref, pass it directly to downstream map/vector tools instead of rebuilding geometry by hand.",
+)
 
 
 def _load_catalog() -> list[dict]:
@@ -46,6 +64,30 @@ def _load_catalog() -> list[dict]:
 
 TOOL_CATALOG = _load_catalog()
 ALLOWED_TOOL_HINTS = {tool["mcpTool"] for tool in TOOL_CATALOG}
+
+
+def _build_tool_reference_prompt_section() -> str:
+    grouped_tools: dict[str, list[dict]] = {}
+    server_order: list[str] = []
+    for tool in TOOL_CATALOG:
+        server = tool["server"]
+        if server not in grouped_tools:
+            grouped_tools[server] = []
+            server_order.append(server)
+        grouped_tools[server].append(tool)
+
+    sections = ["\n".join(_DATABASE_PROMPT_LINES)]
+    for server in server_order:
+        lines = [f"{server.upper()} (server: {server})"]
+        for tool in grouped_tools[server]:
+            lines.append(f"  {tool['mcpTool']:<36} - {tool['desc']}")
+        sections.append("\n".join(lines))
+
+    return "\n\n".join(sections)
+
+
+TOOL_REFERENCE_PROMPT_SECTION = _build_tool_reference_prompt_section()
+TOOL_EFFICIENCY_PROMPT_SECTION = "\n".join(_TOOL_EFFICIENCY_PROMPT_LINES)
 
 
 def normalize_tool_hints(tool_hints) -> list[str]:

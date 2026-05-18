@@ -9,7 +9,7 @@ import { ExportPanel } from './ExportPanel';
  * Keeps ChatInterface mounted even when the user switches panels so the
  * active conversation, auth state, and in-progress input do not reset.
  */
-export function ContentPanel({ activePanel, onClose, layers, drawnLayers, onSetDrawnLayerVisible, onRemoveDrawnLayer, onFlyToLayer, chatUser, onUserChange, onLayerCreated, onSetDrawnLayers, selectedTools, onToggleTool, onClearSelectedTools, onGoToChat, panelWidth }) {
+export function ContentPanel({ activePanel, onClose, layers, drawnLayers, onSetDrawnLayerVisible, onRemoveDrawnLayer, onFlyToLayer, chatUser, onUserChange, onLayerCreated, onSetDrawnLayers, selectedTools, onToggleTool, onClearSelectedTools, onGoToChat, panelWidth, onAiStatusChange }) {
     const isOpen = !!activePanel;
 
     const panelStyle = isOpen && panelWidth !== null
@@ -17,7 +17,7 @@ export function ContentPanel({ activePanel, onClose, layers, drawnLayers, onSetD
         : {};
 
     return (
-        <div className={`content-panel ${isOpen ? 'content-panel--open' : 'content-panel--closed'}`} style={panelStyle}>
+        <div className={`content-panel ${isOpen ? 'content-panel--open' : 'content-panel--closed'}${activePanel === 'Chatbot' ? ' content-panel--chat' : ''}`} style={panelStyle}>
             <button className="close-btn" onClick={onClose}>✕</button>
             <div
                 style={{
@@ -25,6 +25,7 @@ export function ContentPanel({ activePanel, onClose, layers, drawnLayers, onSetD
                     flexDirection: 'column',
                     height: '100%',
                     minHeight: 0,
+                    overflow: 'hidden',
                 }}
             >
                 <ChatInterface
@@ -36,6 +37,7 @@ export function ContentPanel({ activePanel, onClose, layers, drawnLayers, onSetD
                     selectedTools={selectedTools}
                     onClearSelectedTools={onClearSelectedTools}
                     onRemoveTool={onToggleTool}
+                    onAiStatusChange={onAiStatusChange}
                 />
             </div>
 

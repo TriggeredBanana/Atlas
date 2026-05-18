@@ -96,6 +96,30 @@ manager = SessionManager(client)
 _MAX_TITLE_LENGTH = 80  # Characters from first message used as auto-title
 
 
+def _json_metadata(payload: dict) -> str | None:
+    cleaned = {
+        key: value
+        for key, value in payload.items()
+        if value not in (None, "", [], {})
+    }
+    return json.dumps(cleaned) if cleaned else None
+
+
+def _build_user_message_metadata(tool_hints: list[str]) -> str | None:
+    return _json_metadata({"tool_hints": tool_hints})
+
+
+def _build_assistant_message_metadata(
+    *,
+    thinking_text: str = "",
+    turn_usage: dict | None = None,
+) -> str | None:
+    return _json_metadata({
+        "thinking": thinking_text,
+        "turn_usage": turn_usage,
+    })
+
+
 # Lifespan, start and stop in the right order.
 @asynccontextmanager
 async def lifespan(app):
@@ -224,7 +248,7 @@ async def chat(request: Request):
 
     if stream:
         return StreamingResponse(
-            _stream_chat(copilot_session, message, map_context, chat_id, user_id, created_chat, tool_hints, tracker),
+            _stream_chat(copilot_session, message, map_context, chat_id, user_id, created_chat, tool_hints, tracker, db_ok),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -265,7 +289,8 @@ async def chat(request: Request):
         })
 
     # Persist the full exchange + AI layers atomically.
-    user_meta = json.dumps({"tool_hints": tool_hints}) if tool_hints else None
+    user_meta = _build_user_message_metadata(tool_hints)
+    asst_meta = _build_assistant_message_metadata(turn_usage=usage_snapshot.get("turn"))
     tx_statements = [
         (
             "INSERT INTO app.messages (chat_id, role, content, metadata) VALUES (%s, %s, %s, %s::jsonb)",
@@ -273,7 +298,7 @@ async def chat(request: Request):
         ),
         (
             "INSERT INTO app.messages (chat_id, role, content, metadata) VALUES (%s, %s, %s, %s::jsonb)",
-            (chat_id, "assistant", reply, None),
+            (chat_id, "assistant", reply, asst_meta),
         ),
         (
             "UPDATE app.chats SET updated_at = CURRENT_TIMESTAMP WHERE id = %s",
@@ -330,7 +355,7 @@ async def chat(request: Request):
     })
 
 
-async def _stream_chat(copilot_session, message, map_context, chat_id, user_id, created_chat, tool_hints, tracker):
+async def _stream_chat(copilot_session, message, map_context, chat_id, user_id, created_chat, tool_hints, tracker, db_ok=True):
     """
     Async generator that yields SSE events for a streaming chat response.
 
@@ -406,13 +431,11 @@ async def _stream_chat(copilot_session, message, map_context, chat_id, user_id, 
             elif ctype == "done":
                 reply = chunk["content"]
                 map_actions = chunk["map_actions"]
-
     except asyncio.CancelledError:
         # Client disconnected -- clean up silently.
         tracker.finalise_turn()
         logger.info("Stream cancelled (client disconnect) for chat %s", chat_id)
         return
-
     except Exception as exc:
         tracker.finalise_turn()
         logger.error("Streaming failed for chat %s: %s", chat_id, exc)
@@ -440,9 +463,17 @@ async def _stream_chat(copilot_session, message, map_context, chat_id, user_id, 
         if raw_thinking else ""
     )
 
+    # Skip persistence when the DB was already known to be unavailable.
+    if not db_ok:
+        yield f"event: done\ndata: {json.dumps({'content': reply, 'map_actions': map_actions, 'usage': usage_snapshot, 'persisted': False})}\n\n"
+        return
+
     # Persist the full exchange + AI layers atomically.
-    user_meta = json.dumps({"tool_hints": tool_hints}) if tool_hints else None
-    asst_meta = json.dumps({"thinking": thinking_text}) if thinking_text else None
+    user_meta = _build_user_message_metadata(tool_hints)
+    asst_meta = _build_assistant_message_metadata(
+        thinking_text=thinking_text,
+        turn_usage=usage_snapshot.get("turn"),
+    )
     tx_statements = [
         (
             "INSERT INTO app.messages (chat_id, role, content, metadata) VALUES (%s, %s, %s, %s::jsonb)",
@@ -489,15 +520,19 @@ async def _stream_chat(copilot_session, message, map_context, chat_id, user_id, 
     except Exception as exc:
         logger.error("Failed to persist messages for chat %s: %s", chat_id, exc)
         await manager.discard_chat(chat_id)
+        chat_deleted = False
         if created_chat:
             try:
                 await execute(
                     "DELETE FROM app.chats WHERE id = %s AND user_id = %s",
                     (chat_id, user_id),
                 )
+                chat_deleted = True
             except Exception:
                 logger.warning("Failed to clean up unsaved chat %s", chat_id, exc_info=True)
-        yield f"event: error\ndata: {json.dumps({'error': 'Could not save chat history.'})}\n\n"
+        # Emit the reply the user already saw — never replace it with an error.
+        # Signal that persistence failed so the frontend can handle stale IDs.
+        yield f"event: done\ndata: {json.dumps({'content': reply, 'map_actions': map_actions, 'usage': usage_snapshot, 'persisted': False, 'chat_deleted': chat_deleted})}\n\n"
         return
 
     yield f"event: done\ndata: {json.dumps({'content': reply, 'map_actions': map_actions, 'usage': usage_snapshot})}\n\n"
@@ -528,10 +563,13 @@ async def get_usage(request: Request):
 
     # Enforce ownership.
     user_id = str(user["id"])
-    ownership = await query(
-        "SELECT id FROM app.chats WHERE id = %s AND user_id = %s",
-        (chat_id, user_id),
-    )
+    try:
+        ownership = await query(
+            "SELECT id FROM app.chats WHERE id = %s AND user_id = %s",
+            (chat_id, user_id),
+        )
+    except RuntimeError:
+        return JSONResponse({"error": "Database unavailable."}, status_code=503)
     if not ownership:
         return JSONResponse({"error": "Chat not found."}, status_code=404)
 
@@ -549,6 +587,10 @@ async def get_usage(request: Request):
 # ---------------------------------------------------------------------------
 # Other REST handlers
 # ---------------------------------------------------------------------------
+
+async def health(request: Request):
+    return JSONResponse({"status": "ok"})
+
 
 async def get_documents(request: Request):
     loop = asyncio.get_running_loop()
@@ -666,6 +708,7 @@ app = Starlette(
         Route("/api/usage",     endpoint=get_usage,     methods=["GET"]),
 
         # Miscellaneous
+        Route("/api/health",    endpoint=health,        methods=["GET"]),
         Route("/api/documents", endpoint=get_documents, methods=["GET"]),
         Route("/api/test-db",   endpoint=test_db,       methods=["GET"]),
         Route("/api/search/chunks/{chunk_id}", endpoint=test_search_chunk, methods=["GET"]),

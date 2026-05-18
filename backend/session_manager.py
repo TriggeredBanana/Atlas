@@ -12,6 +12,8 @@ from mcp_auth import MCP_INTERNAL_SECRET
 from copilot.generated.session_events import SessionEventType
 from usage_tracker import get_or_create_tracker, discard_tracker
 from config import (
+    COPILOT_REASONING_EFFORT,
+    COPILOT_REQUEST_TIMEOUT_SECONDS,
     DEMO_MODE,
     MAX_SESSIONS,
     MODEL_NAME,
@@ -98,18 +100,17 @@ def _summarize_map_layer(layer: dict) -> str:
             lines.append(f"  Bounding box: ({min_lon:.6f}°Ø, {min_lat:.6f}°N) til ({max_lon:.6f}°Ø, {max_lat:.6f}°N)")
             lines.append(f"  Antall polygoner: {len(coords)}")
 
-    lines.append(f"  GeoJSON: {json.dumps(geojson)}")
     return "\n".join(lines)
 
 def strict_permission_handler(*_args, **_kwargs):
     """Deny tool permission requests by default outside demo mode."""
     logger.warning("PERMISSION DENIED: args=%s kwargs=%s", _args, _kwargs)
-    return PermissionRequestResult(kind="denied-by-rules")
+    return PermissionRequestResult(kind="reject")
 
 def allow_all_permission_handler(*_args, **_kwargs):
     """Allow tool permission requests in demo mode when SDK helpers are unavailable."""
     logger.info("PERMISSION GRANTED: args=%s kwargs=%s", _args, _kwargs)
-    return PermissionRequestResult(kind="approved")
+    return PermissionRequestResult(kind="approve-once")
 
 
 class SessionManager:
@@ -303,7 +304,7 @@ class SessionManager:
             self.last_active[chat_id] = datetime.now(timezone.utc)
 
         try:
-            response = await session.send_and_wait(full_message, timeout=900)
+            response = await session.send_and_wait(full_message, timeout=COPILOT_REQUEST_TIMEOUT_SECONDS)
         except Exception:
             # Evict the broken session so the next request creates a fresh one
             # instead of retrying against a permanently dead session.
@@ -365,7 +366,7 @@ class SessionManager:
                 )
                 idle_event.set()
 
-        _STREAM_TIMEOUT = 900  # seconds — matches send_and_wait timeout
+        _STREAM_TIMEOUT = COPILOT_REQUEST_TIMEOUT_SECONDS
 
         unsubscribe = session.on(handler)
         try:
@@ -431,11 +432,8 @@ class SessionManager:
             )
             parts.append(
                 "[CURRENT MAP STATE]\n"
-                "Brukeren har følgende lag tegnet på kartet med EKSAKTE koordinater.\n"
-                "GeoJSON-koordinater bruker rekkefølgen [longitude, latitude].\n"
-                "Bruk disse EKSAKTE koordinatene i svaret — IKKE avrund, estimer, eller gjett stedsnavn fra koordinater.\n"
-                "Hvis brukeren spør om kartinnholdet, svar med dataen nedenfor.\n"
-                "Du kan også kalle map-get_drawn_layers for å hente kartdata strukturert.\n\n"
+                "Brukeren har følgende lag tegnet på kartet (kompakt oversikt).\n"
+                "Kall map-get_drawn_layers for eksakte koordinater og GeoJSON om nødvendig.\n\n"
                 f"{layer_summaries}"
             )
         parts.append(f"[USER MESSAGE]\n{message}")
