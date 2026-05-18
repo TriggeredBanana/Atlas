@@ -21,7 +21,7 @@ Atlas er en GeoMCP-chatbot utviklet for å assistere saksbehandlere i arbeid med
 
 ![Register flow](assets/registermodal.gif)
 
-Nye brukere kan registrere seg gjennom logg inn knappen.
+Nye brukere kan registrere seg gjennom logg inn-knappen.
 
 ### Innlogging 
 
@@ -38,7 +38,7 @@ Eksisterende brukere logger inn gjennom samme knapp.
 
 ![Sende melding](assets/sendChat.gif) 
 
-Enkelt skriv spørsmål eller forespørsler, deretter få svar fra assistenten. 
+Skriv enkelt spørsmål eller forespørsler, og få svar fra assistenten.
 
 ---
 
@@ -65,9 +65,9 @@ Brukere kan se tokenforbruk per melding direkte i chatten.
 
 ---
 
-##  Kart
+## Kart
 
-### Kart Visninger 
+### Kartvisninger 
 ![Map overview](assets/Basemaps.gif)
 
 Kartarbeidsområdet er sentrert på Norge med bakgrunnskart fra Kartverket og flyfoto fra Esri.
@@ -120,7 +120,7 @@ Valgte lag kan eksporteres direkte fra nettleseren:
 
 ![Dark/light mode toggle](assets/EditedLightmode.gif)
 
-Atlas støtter mørk og lys modus med persistent lagring i nettleseren.
+Atlas støtter mørk og lys modus og husker innstillingen i nettleseren.
 
 ---
 
@@ -141,7 +141,7 @@ Atlas støtter mørk og lys modus med persistent lagring i nettleseren.
 ---
 ## Fra prototype til Atlas
 
-<p><em>Utviklingsprossessen og tidlige prototyper</em></p>
+<p><em>Utviklingsprosessen og tidlige prototyper</em></p>
 
 ### Prototype 1 — Første konsept
 
