@@ -1,5 +1,5 @@
 ---
-layout: null
+layout: default
 ---
 
 <div align="center">
