@@ -247,7 +247,7 @@ async def chat(request: Request):
 
     if stream:
         return StreamingResponse(
-            _stream_chat(copilot_session, message, map_context, chat_id, user_id, created_chat, tool_hints, tracker),
+            _stream_chat(copilot_session, message, map_context, chat_id, user_id, created_chat, tool_hints, tracker, db_ok),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -354,7 +354,7 @@ async def chat(request: Request):
     })
 
 
-async def _stream_chat(copilot_session, message, map_context, chat_id, user_id, created_chat, tool_hints, tracker):
+async def _stream_chat(copilot_session, message, map_context, chat_id, user_id, created_chat, tool_hints, tracker, db_ok=True):
     """
     Async generator that yields SSE events for a streaming chat response.
 
@@ -464,6 +464,11 @@ async def _stream_chat(copilot_session, message, map_context, chat_id, user_id, 
         if raw_thinking else ""
     )
 
+    # Skip persistence when the DB was already known to be unavailable.
+    if not db_ok:
+        yield f"event: done\ndata: {json.dumps({'content': reply, 'map_actions': map_actions, 'usage': usage_snapshot, 'persisted': False})}\n\n"
+        return
+
     # Persist the full exchange + AI layers atomically.
     user_meta = _build_user_message_metadata(tool_hints)
     asst_meta = _build_assistant_message_metadata(
@@ -516,15 +521,19 @@ async def _stream_chat(copilot_session, message, map_context, chat_id, user_id, 
     except Exception as exc:
         logger.error("Failed to persist messages for chat %s: %s", chat_id, exc)
         await manager.discard_chat(chat_id)
+        chat_deleted = False
         if created_chat:
             try:
                 await execute(
                     "DELETE FROM app.chats WHERE id = %s AND user_id = %s",
                     (chat_id, user_id),
                 )
+                chat_deleted = True
             except Exception:
                 logger.warning("Failed to clean up unsaved chat %s", chat_id, exc_info=True)
-        yield f"event: error\ndata: {json.dumps({'error': 'Could not save chat history.'})}\n\n"
+        # Emit the reply the user already saw — never replace it with an error.
+        # Signal that persistence failed so the frontend can handle stale IDs.
+        yield f"event: done\ndata: {json.dumps({'content': reply, 'map_actions': map_actions, 'usage': usage_snapshot, 'persisted': False, 'chat_deleted': chat_deleted})}\n\n"
         return
 
     yield f"event: done\ndata: {json.dumps({'content': reply, 'map_actions': map_actions, 'usage': usage_snapshot})}\n\n"
@@ -555,10 +564,13 @@ async def get_usage(request: Request):
 
     # Enforce ownership.
     user_id = str(user["id"])
-    ownership = await query(
-        "SELECT id FROM app.chats WHERE id = %s AND user_id = %s",
-        (chat_id, user_id),
-    )
+    try:
+        ownership = await query(
+            "SELECT id FROM app.chats WHERE id = %s AND user_id = %s",
+            (chat_id, user_id),
+        )
+    except RuntimeError:
+        return JSONResponse({"error": "Database unavailable."}, status_code=503)
     if not ownership:
         return JSONResponse({"error": "Chat not found."}, status_code=404)
 

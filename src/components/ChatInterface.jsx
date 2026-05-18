@@ -492,6 +492,11 @@ export function ChatInterface({ externalUser, onUserChange, drawnLayers = [], on
                 copy[idx] = msg;
                 return copy;
               });
+              // Clear the now-dead ID so follow-up messages don't 404.
+              if (payload.chat_deleted && wasNewChat) {
+                setActiveChatIdState(null);
+                setActiveChatId(null);
+              }
             } else if (eventType === 'error') {
               setMessages(prev => {
                 const idx = assistantIdx.current;
