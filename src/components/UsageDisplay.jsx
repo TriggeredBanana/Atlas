@@ -1,5 +1,386 @@
 import { useState } from 'react';
-import { BarChart3, ChevronDown, ChevronUp, Zap, Info } from 'lucide-react';
+import { BarChart3, ChevronDown, ChevronUp, Zap, Info, Wrench } from 'lucide-react';
+import toolCatalog from '../../shared/tool_catalog.json';
+
+const TOOL_METADATA_BY_ID = Object.fromEntries(
+  toolCatalog.tools.map(tool => [
+    tool.mcpTool,
+    { name: tool.name },
+  ]),
+);
+
+const TOOL_METADATA_OVERRIDES = {
+  report_intent: {
+    name: 'Intentvurdering',
+  },
+  powershell: {
+    name: 'PowerShell',
+  },
+  'search-get_search_result_chunk': {
+    name: 'Treffdetaljer',
+  },
+};
+
+export function TurnSources({ toolCalls, dedupe = true, defaultExpanded = false }) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
+
+  if (!toolCalls || toolCalls.length === 0) return null;
+
+  const items = dedupe
+    ? Array.from(toolCalls.reduce((merged, toolCall) => {
+      const key = `${toolCall.server_name}:${toolCall.tool_name}`;
+      const existing = merged.get(key);
+      if (existing) {
+        existing.document_names = mergeUniqueStrings(
+          existing.document_names || [],
+          toolCall.document_names || [],
+        );
+        existing.summary = mergeToolSummaries(existing.summary, toolCall.summary);
+        return merged;
+      }
+
+      merged.set(key, {
+        ...toolCall,
+        document_names: [...(toolCall.document_names || [])],
+      });
+      return merged;
+    }, new Map()).values())
+    : toolCalls;
+
+  const visibleItems = items.filter(toolCall =>
+    toolCall?.tool_name ||
+    toolCall?.server_name ||
+    toolCall?.summary ||
+    toolCall?.document_names?.length
+  );
+
+  if (visibleItems.length === 0) return null;
+
+  const previewCount = visibleItems.length <= 4 ? visibleItems.length : 3;
+  const hiddenCount = visibleItems.length - previewCount;
+
+  const label = dedupe
+    ? `${visibleItems.length} ${visibleItems.length === 1 ? 'source' : 'sources'} used`
+    : `${visibleItems.length} ${visibleItems.length === 1 ? 'tool call' : 'tool calls'}`;
+
+  return (
+    <div className="turn-sources" onClick={() => setExpanded(e => !e)}>
+      <div className="turn-sources__summary">
+        <Wrench size={12} className="turn-sources__icon" />
+        <span className="turn-sources__label">{label}</span>
+        {!expanded && (
+          <span className="turn-sources__preview">
+            {visibleItems.slice(0, previewCount).map(formatToolCallLabel).join(', ')}
+            {hiddenCount > 0 && ` +${hiddenCount}`}
+          </span>
+        )}
+        {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+      </div>
+
+      {expanded && (
+        <div className="turn-sources__details">
+          {visibleItems.map((toolCall, index) => {
+            const labelText = formatToolCallLabel(toolCall);
+            const documentNames = formatDocumentNames(toolCall.document_names || []);
+            const summary = formatToolCallSummary(toolCall, documentNames);
+            const itemKey = `${toolCall?.server_name || ''}:${toolCall?.tool_name || ''}:${index}`;
+
+            return (
+              <div key={itemKey} className="turn-sources__item">
+                <span className="turn-sources__toolline">
+                  <span className="turn-sources__tool">{labelText}</span>
+                  {summary && (
+                    <span className="turn-sources__intent">{summary}</span>
+                  )}
+                </span>
+                {documentNames.length > 0 && (
+                  <span className="turn-sources__documents">
+                    Dokumenter: {documentNames.join(', ')}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function mergeUniqueStrings(existing = [], incoming = []) {
+  const merged = [];
+  const seen = new Set();
+
+  for (const value of [...existing, ...incoming]) {
+    const normalized = (value || '').trim();
+    if (!normalized) continue;
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(normalized);
+  }
+
+  return merged;
+}
+
+function mergeToolSummaries(existing = '', incoming = '') {
+  const current = (existing || '').trim();
+  const candidate = (incoming || '').trim();
+  if (!candidate) return current;
+  if (!current || candidate.length > current.length) return candidate;
+  return current;
+}
+
+function formatToolCallLabel(toolCall) {
+  return findToolMetadata(toolCall)?.name || toolCall?.tool_name || toolCall?.server_name || 'Tool call';
+}
+
+function formatToolCallSummary(toolCall, documentNames = []) {
+  const labelText = formatToolCallLabel(toolCall);
+  const summary = humanizeRuntimeSummary(toolCall?.summary, labelText, toolCall?.tool_name);
+  if (summary) return summary;
+  return buildFallbackToolSummary(toolCall, labelText, documentNames);
+}
+
+function humanizeToolName(toolName) {
+  const normalized = (toolName || '').trim();
+  if (!normalized) return '';
+  return normalized.replaceAll(/[_-]+/g, ' ');
+}
+
+function humanizeRuntimeSummary(summary, labelText, rawToolName) {
+  const normalized = (summary || '').trim();
+  if (!normalized) return '';
+
+  const toolVariants = mergeUniqueStrings([], [
+    normalized,
+    labelText,
+    humanizeToolName(rawToolName),
+    rawToolName,
+  ]).map(value => value.toLowerCase());
+
+  if (toolVariants.length > 1 && toolVariants.slice(1).includes(normalized.toLowerCase())) {
+    return '';
+  }
+
+  let text = normalized
+    .replace(/([A-Za-z])[_-]+([A-Za-z])/g, '$1 $2')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const prefixReplacements = [
+    [/^using\b/i, 'Brukte'],
+    [/^used\b/i, 'Brukte'],
+    [/^searching\b/i, 'Sokte'],
+    [/^searched\b/i, 'Sokte'],
+    [/^fetching\b/i, 'Hentet'],
+    [/^fetched\b/i, 'Hentet'],
+    [/^getting\b/i, 'Hentet'],
+    [/^retrieving\b/i, 'Hentet'],
+    [/^retrieved\b/i, 'Hentet'],
+    [/^loading\b/i, 'Lastet'],
+    [/^loaded\b/i, 'Lastet'],
+    [/^reading\b/i, 'Leste'],
+    [/^checking\b/i, 'Sjekket'],
+    [/^checked\b/i, 'Sjekket'],
+    [/^calling\b/i, 'Kjorte'],
+    [/^called\b/i, 'Kjorte'],
+    [/^executing\b/i, 'Kjorte'],
+    [/^executed\b/i, 'Kjorte'],
+    [/^running\b/i, 'Kjorte'],
+    [/^ran\b/i, 'Kjorte'],
+    [/^looking up\b/i, 'Slo opp'],
+    [/^analyzing\b/i, 'Analyserte'],
+    [/^analysing\b/i, 'Analyserte'],
+  ];
+
+  prefixReplacements.forEach(([pattern, replacement]) => {
+    text = text.replace(pattern, replacement);
+  });
+
+  text = text
+    .replace(/\bdocuments\b/gi, 'dokumenter')
+    .replace(/\bdocument\b/gi, 'dokument')
+    .replace(/\bsources\b/gi, 'kilder')
+    .replace(/\bsource\b/gi, 'kilde')
+    .replace(/\bresults\b/gi, 'treff')
+    .replace(/\bresult\b/gi, 'treff')
+    .replace(/\bquery\b/gi, 'sporring')
+    .replace(/\bqueries\b/gi, 'sporringer')
+    .replace(/\btool\b/gi, 'verktoy')
+    .replace(/\btools\b/gi, 'verktoy');
+
+  return ensureSentence(capitalizeText(text));
+}
+
+function buildFallbackToolSummary(toolCall, labelText, documentNames = []) {
+  const toolId = normalizeToolId(toolCall);
+  const serverName = humanizeServerName(toolCall?.server_name);
+
+  if (toolId.includes('fetch document')) {
+    if (documentNames[0]) {
+      return `Hentet innhold fra ${documentNames[0]}.`;
+    }
+    return 'Hentet innhold fra et dokument.';
+  }
+
+  if (toolId.includes('list documents')) {
+    return 'Sjekket hvilke dokumenter som var tilgjengelige.';
+  }
+
+  if (toolId.includes('get search result chunk')) {
+    if (documentNames[0]) {
+      return `Hentet flere detaljer fra ${documentNames[0]}.`;
+    }
+    return 'Hentet flere detaljer fra et soketreff.';
+  }
+
+  if (toolId.includes('search')) {
+    if (documentNames.length === 1) {
+      return `Sokte i ${documentNames[0]} etter relevant innhold.`;
+    }
+    if (documentNames.length > 1) {
+      return `Sokte i ${documentNames.length} dokumenter etter relevant innhold.`;
+    }
+    return `Sokte etter relevant innhold med ${labelText.toLowerCase()}.`;
+  }
+
+  if (toolId.includes('forward geocode')) {
+    return 'Slo opp et stedsnavn for a finne koordinater.';
+  }
+
+  if (toolId.includes('reverse geocode')) {
+    return 'Slo opp sted og adresse fra koordinater.';
+  }
+
+  if (toolId.includes('get drawn layers')) {
+    return 'Leste lagene som allerede ligger pa kartet.';
+  }
+
+  if (toolId.includes('draw shape')) {
+    return 'Tegnet resultatet direkte pa kartet.';
+  }
+
+  if (toolId.includes('buffer')) {
+    return 'Lagde en buffersone rundt det valgte omradet.';
+  }
+
+  if (toolId.includes('intersection')) {
+    return 'Fant overlappen mellom geometrier.';
+  }
+
+  if (documentNames.length === 1) {
+    return `${labelText} brukte ${documentNames[0]} som kilde.`;
+  }
+
+  if (documentNames.length > 1) {
+    return `${labelText} brukte ${documentNames.length} dokumenter som kilder.`;
+  }
+
+  if (labelText && serverName) {
+    return `${labelText} ble brukt via ${serverName}.`;
+  }
+
+  if (labelText) {
+    return `${labelText} ble brukt for a lage svaret.`;
+  }
+
+  if (serverName) {
+    return `Et verktoy ble brukt via ${serverName}.`;
+  }
+
+  return '';
+}
+
+function normalizeToolId(toolCall) {
+  return [toolCall?.server_name, toolCall?.tool_name, toolCall?.mcp_tool_name]
+    .filter(Boolean)
+    .join(' ')
+    .replaceAll(/[_-]+/g, ' ')
+    .toLowerCase();
+}
+
+function humanizeServerName(serverName) {
+  const normalized = (serverName || '').trim();
+  if (!normalized) return '';
+  return normalized.replaceAll(/[_-]+/g, ' ');
+}
+
+function capitalizeText(text) {
+  if (!text) return '';
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function ensureSentence(text) {
+  const normalized = (text || '').trim();
+  if (!normalized) return '';
+  if (/[.!?]$/.test(normalized)) return normalized;
+  return `${normalized}.`;
+}
+
+function formatDocumentNames(documentNames = []) {
+  return mergeUniqueStrings(
+    [],
+    documentNames.map(documentName => {
+      const normalized = (documentName || '').trim().replaceAll('\\', '/');
+      return normalized.includes('/') ? normalized.split('/').pop() : normalized;
+    }),
+  );
+}
+
+function findToolMetadata(toolCall) {
+  for (const candidate of getToolIdCandidates(toolCall)) {
+    if (TOOL_METADATA_OVERRIDES[candidate]) {
+      return TOOL_METADATA_OVERRIDES[candidate];
+    }
+    if (TOOL_METADATA_BY_ID[candidate]) {
+      return TOOL_METADATA_BY_ID[candidate];
+    }
+  }
+
+  return null;
+}
+
+function getToolIdCandidates(toolCall) {
+  const candidates = [];
+  const rawServerName = (toolCall?.server_name || '').trim();
+  const serverName = normalizeServerAlias(rawServerName);
+
+  for (const value of [toolCall?.tool_name, toolCall?.mcp_tool_name]) {
+    const normalized = (value || '').trim();
+    if (!normalized) continue;
+    candidates.push(normalized);
+    if (serverName && !normalized.startsWith(`${serverName}-`)) {
+      candidates.push(`${serverName}-${normalized}`);
+    }
+    if (rawServerName && rawServerName !== serverName && !normalized.startsWith(`${rawServerName}-`)) {
+      candidates.push(`${rawServerName}-${normalized}`);
+    }
+  }
+
+  if (serverName) {
+    candidates.push(serverName);
+  }
+
+  if (rawServerName && rawServerName !== serverName) {
+    candidates.push(rawServerName);
+  }
+
+  return mergeUniqueStrings([], candidates);
+}
+
+function normalizeServerAlias(serverName) {
+  const normalized = (serverName || '').trim();
+  const aliases = {
+    blob_docs: 'docs',
+    docs_server: 'docs',
+    search_server: 'search',
+    geo_server: 'geo',
+    vector_server: 'vector',
+    map_server: 'map',
+  };
+  return aliases[normalized] || normalized;
+}
 
 /**
  * Compact per-turn usage summary rendered below an assistant message.
