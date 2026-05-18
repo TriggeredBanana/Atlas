@@ -17,7 +17,7 @@ export function ContentPanel({ activePanel, onClose, layers, drawnLayers, onSetD
         : {};
 
     return (
-        <div className={`content-panel ${isOpen ? 'content-panel--open' : 'content-panel--closed'}`} style={panelStyle}>
+        <div className={`content-panel ${isOpen ? 'content-panel--open' : 'content-panel--closed'}${activePanel === 'Chatbot' ? ' content-panel--chat' : ''}`} style={panelStyle}>
             <button className="close-btn" onClick={onClose}>✕</button>
             <div
                 style={{
@@ -25,6 +25,7 @@ export function ContentPanel({ activePanel, onClose, layers, drawnLayers, onSetD
                     flexDirection: 'column',
                     height: '100%',
                     minHeight: 0,
+                    overflow: 'hidden',
                 }}
             >
                 <ChatInterface

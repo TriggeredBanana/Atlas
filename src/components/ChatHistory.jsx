@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ChevronRight, ChevronDown, MessageSquare, Trash2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { apiFetch } from '../utils/auth';
 import { ConfirmDialog } from './ConfirmDialog';
+import { TurnSources } from './UsageDisplay';
 
 /**
  * ChatHistory
@@ -21,16 +22,92 @@ import { ConfirmDialog } from './ConfirmDialog';
  *   activeChatId  — currently active chat id (highlighted)
  *   onContinue(chatId)       — called when "Fortsett" is clicked
  *   onDeleteMany([chatIds])  — called to delete one or more chats
+ *   isLoaded      — whether the chat list has finished loading for the current user
+ *   loadError     — error text when the chat list fails to load
+ *   onRetryLoad() — retry callback for chat-list loading
  */
-export function ChatHistory({ chats, activeChatId, onContinue, onDeleteMany }) {
+export function ChatHistory({ chats, activeChatId, onContinue, onDeleteMany, isLoaded, loadError = '', onRetryLoad }) {
   const [expanded, setExpanded] = useState(new Set());
   const [messageCache, setMessageCache] = useState({});
+  const [messageLoadErrors, setMessageLoadErrors] = useState({});
   const [loading, setLoading] = useState(new Set());
   const [selected, setSelected] = useState(new Set());
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const allSelected = chats.length > 0 && selected.size === chats.length;
   const someSelected = selected.size > 0 && !allSelected;
+
+  const loadMessages = useCallback(async chatId => {
+    setLoading(prev => {
+      if (prev.has(chatId)) return prev;
+      return new Set([...prev, chatId]);
+    });
+    setMessageLoadErrors(prev => {
+      if (!(chatId in prev)) return prev;
+      const next = { ...prev };
+      delete next[chatId];
+      return next;
+    });
+
+    try {
+      const res = await apiFetch(`/api/chats/${chatId}/messages`);
+      if (!res.ok) {
+        setMessageLoadErrors(prev => ({ ...prev, [chatId]: 'Kunne ikke laste meldingene.' }));
+        return;
+      }
+      const data = await res.json();
+      setMessageCache(prev => ({ ...prev, [chatId]: data.messages || [] }));
+    } catch {
+      setMessageLoadErrors(prev => ({ ...prev, [chatId]: 'Kunne ikke laste meldingene.' }));
+    } finally {
+      setLoading(prev => {
+        const next = new Set(prev);
+        next.delete(chatId);
+        return next;
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isLoaded) {
+      return;
+    }
+
+    const validChatIds = new Set(chats.map(chat => chat.id));
+
+    setExpanded(prev => {
+      const next = new Set(Array.from(prev).filter(chatId => validChatIds.has(chatId)));
+      return next.size === prev.size ? prev : next;
+    });
+
+    setSelected(prev => {
+      const next = new Set(Array.from(prev).filter(chatId => validChatIds.has(chatId)));
+      return next.size === prev.size ? prev : next;
+    });
+
+    setMessageCache(prev => {
+      const nextEntries = Object.entries(prev).filter(([chatId]) => validChatIds.has(chatId));
+      return nextEntries.length === Object.keys(prev).length
+        ? prev
+        : Object.fromEntries(nextEntries);
+    });
+
+    setMessageLoadErrors(prev => {
+      const nextEntries = Object.entries(prev).filter(([chatId]) => validChatIds.has(chatId));
+      return nextEntries.length === Object.keys(prev).length
+        ? prev
+        : Object.fromEntries(nextEntries);
+    });
+  }, [chats, isLoaded]);
+
+  useEffect(() => {
+    chats.forEach(chat => {
+      if (!expanded.has(chat.id) || messageCache[chat.id] || loading.has(chat.id) || messageLoadErrors[chat.id]) {
+        return;
+      }
+      void loadMessages(chat.id);
+    });
+  }, [chats, expanded, loading, messageCache, messageLoadErrors, loadMessages]);
 
   // Expand / collapse
 
@@ -39,19 +116,8 @@ export function ChatHistory({ chats, activeChatId, onContinue, onDeleteMany }) {
       setExpanded(prev => { const next = new Set(prev); next.delete(chatId); return next; });
       return;
     }
-    if (!messageCache[chatId]) {
-      setLoading(prev => new Set([...prev, chatId]));
-      try {
-        const res = await apiFetch(`/api/chats/${chatId}/messages`);
-        if (res.ok) {
-          const data = await res.json();
-          setMessageCache(prev => ({ ...prev, [chatId]: data.messages || [] }));
-        }
-      } catch {
-        // Silently ignore.
-      } finally {
-        setLoading(prev => { const next = new Set(prev); next.delete(chatId); return next; });
-      }
+    if (!messageCache[chatId] && !loading.has(chatId)) {
+      await loadMessages(chatId);
     }
     setExpanded(prev => new Set([...prev, chatId]));
   }
@@ -80,6 +146,27 @@ export function ChatHistory({ chats, activeChatId, onContinue, onDeleteMany }) {
 
   // Empty state
 
+  if (!isLoaded) {
+    return (
+      <div className="chat-history">
+        <p className="chat-history-empty">Laster tidligere samtaler…</p>
+      </div>
+    );
+  }
+
+  if (loadError && chats.length === 0) {
+    return (
+      <div className="chat-history">
+        <p className="chat-history-empty">{loadError}</p>
+        {onRetryLoad && (
+          <button className="chat-history-retry" type="button" onClick={() => void onRetryLoad()}>
+            Prøv igjen
+          </button>
+        )}
+      </div>
+    );
+  }
+
   if (chats.length === 0) {
     return (
       <div className="chat-history">
@@ -95,6 +182,16 @@ export function ChatHistory({ chats, activeChatId, onContinue, onDeleteMany }) {
 
   return (
     <div className="chat-history">
+      {loadError && (
+        <div className="history-load-error">
+          <p className="history-loading">{loadError}</p>
+          {onRetryLoad && (
+            <button className="chat-history-retry" type="button" onClick={() => void onRetryLoad()}>
+              Prøv igjen
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Select-all / bulk-action header row */}
       <div className="history-select-bar">
@@ -126,6 +223,7 @@ export function ChatHistory({ chats, activeChatId, onContinue, onDeleteMany }) {
         const isExpanded = expanded.has(chat.id);
         const isActive = chat.id === activeChatId;
         const isLoading = loading.has(chat.id);
+        const messageLoadError = messageLoadErrors[chat.id] || '';
         const isSelected = selected.has(chat.id);
         const messages = messageCache[chat.id] || [];
 
@@ -159,11 +257,13 @@ export function ChatHistory({ chats, activeChatId, onContinue, onDeleteMany }) {
                 {chat.title || 'Ny samtale'}
               </span>
 
-              <div className="history-item-actions" onClick={e => e.stopPropagation()}>
+              <div className="history-item-actions" onClick={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()}>
                 <button
                   className="history-item-btn--fortsett"
                   title="Fortsett denne samtalen"
+                  type="button"
                   onClick={() => onContinue(chat.id)}
+                  onKeyDown={e => e.stopPropagation()}
                 >
                   Fortsett
                 </button>
@@ -179,24 +279,42 @@ export function ChatHistory({ chats, activeChatId, onContinue, onDeleteMany }) {
               <div className="history-messages">
                 {isLoading ? (
                   <p className="history-loading">Laster meldinger…</p>
+                ) : messageLoadError ? (
+                  <div className="history-load-error">
+                    <p className="history-loading">{messageLoadError}</p>
+                    <button className="history-retry-btn" type="button" onClick={() => void loadMessages(chat.id)}>
+                      Prøv igjen
+                    </button>
+                  </div>
                 ) : messages.length === 0 ? (
                   <p className="history-loading">Ingen meldinger.</p>
                 ) : (
-                  messages.map(msg => (
-                    <div key={msg.id} className={`history-msg history-msg--${msg.role}`}>
-                      {msg.role === 'assistant' ? (
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {(msg.content || '').slice(0, 300) +
-                            ((msg.content || '').length > 300 ? '…' : '')}
-                        </ReactMarkdown>
-                      ) : (
-                        <span>
-                          {(msg.content || '').slice(0, 300)}
-                          {(msg.content || '').length > 300 ? '…' : ''}
-                        </span>
-                      )}
-                    </div>
-                  ))
+                  messages.map(msg => {
+                    const toolCalls = msg.metadata?.turn_usage?.tool_calls || [];
+
+                    return (
+                      <div key={msg.id} className={`history-msg-stack history-msg-stack--${msg.role}`}>
+                        <div className={`history-msg history-msg--${msg.role}`}>
+                          {msg.role === 'assistant' ? (
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                              {(msg.content || '').slice(0, 300) + ((msg.content || '').length > 300 ? '…' : '')}
+                            </ReactMarkdown>
+                          ) : (
+                            <span>
+                              {(msg.content || '').slice(0, 300)}
+                              {(msg.content || '').length > 300 ? '…' : ''}
+                            </span>
+                          )}
+                        </div>
+
+                        {msg.role === 'assistant' && toolCalls.length > 0 && (
+                          <div className="history-msg-sources">
+                            <TurnSources toolCalls={toolCalls} dedupe={false} defaultExpanded />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
                 )}
               </div>
             )}

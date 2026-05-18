@@ -5,7 +5,7 @@ import remarkGfm from 'remark-gfm';
 
 import { AuthModal } from './AuthModal';
 import { ChatHistory } from './ChatHistory';
-import { TurnUsage, MonthlyUsageBar, InputAreaUsageBar } from './UsageDisplay';
+import { TurnUsage, MonthlyUsageBar, InputAreaUsageBar, TurnSources } from './UsageDisplay';
 import toolCatalog from '../../shared/tool_catalog.json';
 import {
   apiFetch,
@@ -22,28 +22,6 @@ const _TOOL_BY_MCP_ID = Object.fromEntries(
 
 function ThinkingBlock({ thinking, isStreaming }) {
   const [expanded, setExpanded] = useState(isStreaming);
-  const contentRef = useRef(null);
-  const userScrolledUp = useRef(false);
-
-  // Detect if user has manually scrolled up (stop auto-scroll if so)
-  useEffect(() => {
-    const el = contentRef.current;
-    if (!el) return;
-    function onScroll() {
-      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 20;
-      userScrolledUp.current = !atBottom;
-    }
-    el.addEventListener('scroll', onScroll);
-    return () => el.removeEventListener('scroll', onScroll);
-  }, [expanded]); // re-attach when expanded toggles (el mounts/unmounts)
-
-  // Auto-scroll to bottom as thinking text streams in, unless user scrolled up.
-  useLayoutEffect(() => {
-    const el = contentRef.current;
-    if (expanded && el && !userScrolledUp.current) {
-      el.scrollTop = el.scrollHeight;
-    }
-  }, [thinking, expanded]);
 
   if (!thinking) return null;
 
@@ -57,7 +35,7 @@ function ThinkingBlock({ thinking, isStreaming }) {
         {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
       </button>
       {expanded && (
-        <div className="thinking-content" ref={contentRef}>
+        <div className={`thinking-content${isStreaming ? ' thinking-content--streaming' : ''}`}>
           {thinking}
         </div>
       )}
@@ -66,6 +44,8 @@ function ThinkingBlock({ thinking, isStreaming }) {
 }
 
 export function ChatInterface({ externalUser, onUserChange, drawnLayers = [], onLayerCreated, onSetDrawnLayers, selectedTools = [], onClearSelectedTools, onRemoveTool }) {
+  const CHAT_SCROLL_RESUME_THRESHOLD = 2;
+
   // Auth state
   const [user, setUser] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
@@ -78,16 +58,20 @@ export function ChatInterface({ externalUser, onUserChange, drawnLayers = [], on
   const [messages, setMessages] = useState([]);
   const [chats, setChats] = useState([]);
   const [chatsLoaded, setChatsLoaded] = useState(false);
+  const [chatsLoading, setChatsLoading] = useState(false);
+  const [chatListError, setChatListError] = useState('');
 
   // Input state
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [attachments, setAttachments] = useState([]);
-  const bottomRef = useRef(null);
+  const messagesRef = useRef(null);
   const fileInputRef = useRef(null);
   const streamAbortRef = useRef(null);
   const textareaRef = useRef(null);
   const assistantIdx = useRef(null);
+  const userScrolledUpRef = useRef(false);
+  const userScrollInteractionRef = useRef(false);
 
   const MAX_TEXTAREA_HEIGHT = 250; // ~5 rows
 
@@ -106,9 +90,111 @@ export function ChatInterface({ externalUser, onUserChange, drawnLayers = [], on
   const [usageSession, setUsageSession] = useState(null);
   const [usageMonthly, setUsageMonthly] = useState(null);
 
-  // Scroll to bottom on new messages
+  function isChatScrolledToBottom(el) {
+    return el.scrollHeight - el.scrollTop - el.clientHeight <= CHAT_SCROLL_RESUME_THRESHOLD;
+  }
+
+  function resetAutoFollow() {
+    userScrolledUpRef.current = false;
+    userScrollInteractionRef.current = false;
+  }
+
+  // Any upward movement pauses follow mode immediately. Follow only resumes once
+  // the user intentionally returns to the bottom of the message list.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const el = messagesRef.current;
+    if (!el) return;
+
+    function pauseAutoFollow() {
+      userScrolledUpRef.current = true;
+    }
+
+    function syncAutoFollowWithPosition() {
+      if (isChatScrolledToBottom(el)) {
+        if (!userScrollInteractionRef.current) {
+          userScrolledUpRef.current = false;
+        }
+      } else {
+        userScrolledUpRef.current = true;
+      }
+    }
+
+    function onPointerDown() {
+      userScrollInteractionRef.current = true;
+    }
+
+    function onPointerUp() {
+      userScrollInteractionRef.current = false;
+      syncAutoFollowWithPosition();
+    }
+
+    function onPointerCancel() {
+      userScrollInteractionRef.current = false;
+      syncAutoFollowWithPosition();
+    }
+
+    function onWheel(e) {
+      if (e.deltaY < 0) {
+        pauseAutoFollow();
+      }
+    }
+
+    function onTouchStart() {
+      userScrollInteractionRef.current = true;
+    }
+
+    function onTouchEnd() {
+      userScrollInteractionRef.current = false;
+      syncAutoFollowWithPosition();
+    }
+
+    function onKeyDown(e) {
+      if (!isLoading) return;
+      if (
+        e.key === 'ArrowUp' ||
+        e.key === 'ArrowDown' ||
+        e.key === 'PageUp' ||
+        e.key === 'PageDown' ||
+        e.key === 'Home' ||
+        e.key === 'End' ||
+        e.key === ' '
+      ) {
+        pauseAutoFollow();
+      }
+    }
+
+    function onScroll() {
+      syncAutoFollowWithPosition();
+    }
+
+    syncAutoFollowWithPosition();
+    el.addEventListener('pointerdown', onPointerDown, { passive: true });
+    window.addEventListener('pointerup', onPointerUp, { passive: true });
+    window.addEventListener('pointercancel', onPointerCancel, { passive: true });
+    el.addEventListener('wheel', onWheel, { passive: true });
+    el.addEventListener('touchstart', onTouchStart, { passive: true });
+    window.addEventListener('touchend', onTouchEnd, { passive: true });
+    window.addEventListener('touchcancel', onTouchEnd, { passive: true });
+    window.addEventListener('keydown', onKeyDown);
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      el.removeEventListener('pointerdown', onPointerDown);
+      window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerCancel);
+      el.removeEventListener('wheel', onWheel);
+      el.removeEventListener('touchstart', onTouchStart);
+      window.removeEventListener('touchend', onTouchEnd);
+      window.removeEventListener('touchcancel', onTouchEnd);
+      window.removeEventListener('keydown', onKeyDown);
+      el.removeEventListener('scroll', onScroll);
+    };
+  }, [activeTab, isLoading, CHAT_SCROLL_RESUME_THRESHOLD]);
+
+  useLayoutEffect(() => {
+    if (userScrolledUpRef.current || userScrollInteractionRef.current) return;
+    const el = messagesRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
   }, [messages]);
 
   // External logout signal (e.g. header logout button)
@@ -120,6 +206,8 @@ export function ChatInterface({ externalUser, onUserChange, drawnLayers = [], on
       setMessages([]);
       setChats([]);
       setChatsLoaded(false);
+      setChatsLoading(false);
+      setChatListError('');
       setActiveTab('chat');
       setInput('');
       setAttachments([]);
@@ -179,24 +267,30 @@ export function ChatInterface({ externalUser, onUserChange, drawnLayers = [], on
 
   // Load chat list when history tab opens
   useEffect(() => {
-    if (activeTab === 'history' && user && !chatsLoaded) {
+    if (activeTab === 'history' && user && !chatsLoaded && !chatsLoading) {
       refreshChatList();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, user]);
+  }, [activeTab, user, chatsLoaded, chatsLoading]);
 
   // Helpers
 
   const refreshChatList = useCallback(async () => {
+    setChatsLoading(true);
+    setChatListError('');
     try {
       const res = await apiFetch('/api/chats');
-      if (res.ok) {
-        const data = await res.json();
-        setChats(data.chats || []);
-        setChatsLoaded(true);
+      if (!res.ok) {
+        setChatListError('Kunne ikke laste tidligere samtaler.');
+        return;
       }
+      const data = await res.json();
+      setChats(data.chats || []);
     } catch {
-      // Silently ignore; list stays stale.
+      setChatListError('Kunne ikke laste tidligere samtaler.');
+    } finally {
+      setChatsLoaded(true);
+      setChatsLoading(false);
     }
   }, []);
 
@@ -214,6 +308,9 @@ export function ChatInterface({ externalUser, onUserChange, drawnLayers = [], on
         };
         if (m.role === 'assistant' && metadata.thinking) {
           msg.thinking = metadata.thinking;
+        }
+        if (m.role === 'assistant' && metadata.turn_usage) {
+          msg.turnUsage = metadata.turn_usage;
         }
         if (metadata.tool_hints?.length) {
           msg.tools = metadata.tool_hints.map(mcpId => {
@@ -252,9 +349,12 @@ export function ChatInterface({ externalUser, onUserChange, drawnLayers = [], on
   function handleAuthSuccess(userData) {
     setUser(userData);
     setActiveChatIdState(null);
+    setActiveTab('chat');
     setMessages([]);
     setChats([]);
     setChatsLoaded(false);
+    setChatsLoading(false);
+    setChatListError('');
     setUsageSession(null);
     setUsageMonthly(null);
     onUserChange?.(userData);
@@ -262,6 +362,7 @@ export function ChatInterface({ externalUser, onUserChange, drawnLayers = [], on
 
   async function handleNewChat() {
     streamAbortRef.current?.abort();
+    resetAutoFollow();
     setActiveChatIdState(null);
     setActiveChatId(null);
     setMessages([]);
@@ -275,6 +376,7 @@ export function ChatInterface({ externalUser, onUserChange, drawnLayers = [], on
 
   async function handleContinueChat(chatId) {
     streamAbortRef.current?.abort();
+    resetAutoFollow();
     const loaded = await loadChatMessages(chatId);
     if (!loaded) return;
     setActiveChatIdState(chatId);
@@ -333,6 +435,7 @@ export function ChatInterface({ externalUser, onUserChange, drawnLayers = [], on
     const wasNewChat = !activeChatId;
     const sentTools = [...selectedTools];
     const userMessage = { role: 'user', text: trimmed, attachments: [...attachments], tools: sentTools };
+    resetAutoFollow();
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     setAttachments([]);
@@ -401,6 +504,8 @@ export function ChatInterface({ externalUser, onUserChange, drawnLayers = [], on
                 setActiveChatIdState(payload.chat_id);
                 setActiveChatId(payload.chat_id);
                 setChatsLoaded(false);
+                setChatsLoading(false);
+                setChatListError('');
 
                 // Bulk-persist any pre-existing drawn layers to the newly created chat.
                 const persistable = drawnLayers.filter(l => l.id && l.geoJson);
@@ -474,6 +579,11 @@ export function ChatInterface({ externalUser, onUserChange, drawnLayers = [], on
                 copy[idx] = msg;
                 return copy;
               });
+              // Clear the now-dead ID so follow-up messages don't 404.
+              if (payload.chat_deleted && wasNewChat) {
+                setActiveChatIdState(null);
+                setActiveChatId(null);
+              }
             } else if (eventType === 'error') {
               setMessages(prev => {
                 const idx = assistantIdx.current;
@@ -603,7 +713,7 @@ export function ChatInterface({ externalUser, onUserChange, drawnLayers = [], on
       {/* Samtale tab */}
       {activeTab === 'chat' && (
         <>
-          <div className="chat-messages">
+          <div className="chat-messages" ref={messagesRef}>
             {messages.length === 0 ? (
               <p className="chat-empty">Start samtalen…</p>
             ) : (
@@ -666,14 +776,15 @@ export function ChatInterface({ externalUser, onUserChange, drawnLayers = [], on
                       </div>
                     )}
                     {msg.role === 'assistant' && msg.turnUsage && (
-                      <TurnUsage usage={msg.turnUsage} />
+                      <>
+                        <TurnSources toolCalls={msg.turnUsage?.tool_calls} />
+                        <TurnUsage usage={msg.turnUsage} />
+                      </>
                     )}
                   </div>
                 );
               })
             )}
-
-            <div ref={bottomRef} />
           </div>
 
           {(attachments.length > 0 || selectedTools.length > 0) && (
@@ -747,8 +858,11 @@ export function ChatInterface({ externalUser, onUserChange, drawnLayers = [], on
         <ChatHistory
           chats={chats}
           activeChatId={activeChatId}
+          isLoaded={chatsLoaded}
+          loadError={chatListError}
           onContinue={handleContinueChat}
           onDeleteMany={handleDeleteManyChats}
+          onRetryLoad={refreshChatList}
         />
       )}
     </div>
