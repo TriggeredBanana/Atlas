@@ -43,7 +43,7 @@ function ThinkingBlock({ thinking, isStreaming }) {
   );
 }
 
-export function ChatInterface({ externalUser, onUserChange, drawnLayers = [], onLayerCreated, onSetDrawnLayers, selectedTools = [], onClearSelectedTools, onRemoveTool }) {
+export function ChatInterface({ externalUser, onUserChange, drawnLayers = [], onLayerCreated, onSetDrawnLayers, selectedTools = [], onClearSelectedTools, onRemoveTool, onAiStatusChange }) {
   const CHAT_SCROLL_RESUME_THRESHOLD = 2;
 
   // Auth state
@@ -441,6 +441,8 @@ export function ChatInterface({ externalUser, onUserChange, drawnLayers = [], on
     setAttachments([]);
     onClearSelectedTools?.();
     setIsLoading(true);
+    let hadError = false;
+    onAiStatusChange?.('active');
 
     // Add a placeholder assistant message that we'll update incrementally
     setMessages(prev => {
@@ -470,6 +472,7 @@ export function ChatInterface({ externalUser, onUserChange, drawnLayers = [], on
           copy[assistantIdx.current] = { role: 'assistant', text: data.error || 'En feil oppstod.', attachments: [] };
           return copy;
         });
+        hadError = true;
         return;
       }
 
@@ -585,6 +588,7 @@ export function ChatInterface({ externalUser, onUserChange, drawnLayers = [], on
                 setActiveChatId(null);
               }
             } else if (eventType === 'error') {
+              hadError = true;
               setMessages(prev => {
                 const idx = assistantIdx.current;
                 if (idx === null || idx >= prev.length) return prev;
@@ -609,6 +613,7 @@ export function ChatInterface({ externalUser, onUserChange, drawnLayers = [], on
       }
     } catch (err) {
       if (err?.name === 'AbortError') return; // component unmounted — nothing to update
+      hadError = true;
       setMessages(prev => {
         const copy = [...prev];
         if (assistantIdx.current !== null && assistantIdx.current < copy.length) {
@@ -627,6 +632,7 @@ export function ChatInterface({ externalUser, onUserChange, drawnLayers = [], on
     } finally {
       streamAbortRef.current = null;
       setIsLoading(false);
+      onAiStatusChange?.(hadError ? 'error' : 'idle');
     }
   }
 

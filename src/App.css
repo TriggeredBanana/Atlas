@@ -182,6 +182,66 @@
   text-overflow: ellipsis;
 }
 
+/* Sidebar status section */
+.sidebar-status {
+  margin-top: auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  border-top: 1px solid var(--border);
+}
+
+.sidebar-status-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0;
+  height: 35px;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  color: var(--menus);
+  white-space: nowrap;
+  cursor: default;
+  min-width: 0;
+}
+.sidebar--collapsed .sidebar-status-item {
+  flex: unset;
+  justify-content: center;
+  padding: 8px;
+}
+
+.sidebar-status-icon {
+  width: 16px;
+  text-align: center;
+  flex-shrink: 0;
+  font-size: 0.9rem;
+}
+
+.sidebar-status-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.85;
+}
+
+/* Server status colours */
+.sidebar-status-icon--connected    { color: #26BE76; }
+.sidebar-status-icon--disconnected { color: #e05252; }
+.sidebar-status-icon--checking     { color: #888; }
+
+/* AI status colours */
+.sidebar-status-icon--idle   { color: #888; }
+.sidebar-status-icon--error  { color: #e05252; }
+.sidebar-status-icon--active {
+  color: #26BE76;
+  animation: status-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
 /* Content Panel */
 .content-panel {
   width: 0;
