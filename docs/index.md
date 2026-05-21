@@ -218,6 +218,26 @@ Atlas støtter mørk og lys modus og husker innstillingen i nettleseren.
   <a href="#prototype">Prototype</a>
 </div>
 
+<button id="hamburger-btn" aria-label="Åpne navigasjon">
+  <span class="hbar"></span>
+  <span class="hbar"></span>
+  <span class="hbar"></span>
+</button>
+
+<div id="nav-overlay"></div>
+
+<div id="nav-drawer">
+  <a href="#top">Tilbake til topp</a>
+  <a href="#personlige-brukere">Brukere</a>
+  <a href="#chat">Chat</a>
+  <a href="#kart">Kart</a>
+  <a href="#verktoy">Verktøy</a>
+  <a href="#eksport">Eksport</a>
+  <a href="#modus">Modus</a>
+  <a href="#video">Video</a>
+  <a href="#prototype">Prototype</a>
+</div>
+
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 
 <style>
@@ -337,7 +357,8 @@ html{
   z-index: 999;
 }
 
-#sidebar-nav a{
+#sidebar-nav a,
+#nav-drawer a{
   text-decoration: none;
   color: inherit;
   font-size: 0.9rem;
@@ -352,6 +373,96 @@ html{
 body.dark #sidebar-nav{
   background: rgba(20,20,20,0.55);
   border: 1px solid rgba(255,255,255,0.12);
+}
+
+#hamburger-btn {
+  display: none;
+  position: fixed;
+  top: 1rem;
+  left: 1rem;
+  z-index: 1001;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  border: 1px solid rgba(0,0,0,0.08);
+  background: rgba(255,255,255,0.85);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  cursor: pointer;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 11px 10px;
+}
+
+body.dark #hamburger-btn {
+  background: rgba(20,20,20,0.55);
+  border: 1px solid rgba(255,255,255,0.12);
+}
+
+.hbar {
+  width: 20px;
+  height: 2px;
+  background: #111;
+  border-radius: 2px;
+  transition: all 0.25s;
+  display: block;
+}
+
+body.dark .hbar { background: #fff; }
+
+#hamburger-btn.open .hbar:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+#hamburger-btn.open .hbar:nth-child(2) { opacity: 0; }
+#hamburger-btn.open .hbar:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+
+#nav-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.35);
+  z-index: 999;
+}
+
+#nav-overlay.open { display: block; }
+
+#nav-drawer {
+  display: flex;
+  visibility: hidden;
+  pointer-events: none;
+  position: fixed;
+  top: 0; left: 0;
+  height: 100%;
+  width: 200px;
+  background: rgba(255,255,255,0.85);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 0 14px 14px 0;
+  z-index: 1000;
+  padding: 72px 0.75rem 1.5rem;
+  flex-direction: column;
+  gap: 0.5rem;
+  transform: translateX(-100%);
+  transition: transform 0.25s ease;
+}
+
+body.dark #nav-drawer {
+  background: rgba(20,20,20,0.55);
+  border: 1px solid rgba(255,255,255,0.12);
+}
+
+#nav-drawer.open { 
+  transform: translateX(0); 
+  visibility: visible;
+  pointer-events: auto;
+  }
+
+#nav-drawer a:hover { opacity: 1; }
+
+@media (max-width: 768px) {
+  #sidebar-nav { display: none; }
+  #hamburger-btn { display: flex; }
 }
 </style>
 
@@ -394,4 +505,23 @@ btn.addEventListener('click', () => {
   localStorage.setItem('theme', dark ? 'dark' : 'light');
   apply(dark);
 });
+
+const hbtn = document.getElementById('hamburger-btn');
+const drawer = document.getElementById('nav-drawer');
+const navOverlay = document.getElementById('nav-overlay');
+
+function closeDrawer() {
+  drawer.classList.remove('open');
+  navOverlay.classList.remove('open');
+  hbtn.classList.remove('open');
+}
+
+hbtn.addEventListener('click', () => {
+  const isOpen = drawer.classList.toggle('open');
+  navOverlay.classList.toggle('open', isOpen);
+  hbtn.classList.toggle('open', isOpen);
+});
+
+navOverlay.addEventListener('click', closeDrawer);
+drawer.querySelectorAll('a').forEach(a => a.addEventListener('click', closeDrawer));
 </script>
