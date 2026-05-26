@@ -10,14 +10,14 @@
 <style>
 
 :root {
-  --bg: #030306;
-  --surface: rgba(10, 10, 18, 0.4);
-  --border: rgba(255, 255, 255, 0.04);
-  --border-hover: rgba(255, 255, 255, 0.1);
-  --text: #f4f4f5; /* zinc-100 */
-  --text-muted: #a1a1aa; /* zinc-400 */
-  --muted: #52525b; /* zinc-600 */
-  --dim: #71717a; /* zinc-500 */
+  --bg: #ffffff;
+  --surface: #ffffff;
+  --border: rgba(0, 0, 0, 0.08);
+  --border-hover: rgba(0, 0, 0, 0.18);
+  --text: #111111;
+  --text-muted: #52525b;
+  --muted: #a1a1aa;
+  --dim: #71717a;
 
   /* Premium pastel-toned accent colors */
   --blue: #3b82f6;   /* Sky Indigo */
@@ -47,52 +47,15 @@ body {
   overflow-x: hidden;
 }
 
-/* Atmospheric glows */
-.glow-bg {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: -1;
-}
-.glow-1 {
-  position: absolute;
-  top: -10%;
-  left: 20%;
-  width: 60%;
-  height: 50%;
-  background: radial-gradient(ellipse at 50% 0%, rgba(99, 102, 241, 0.04) 0%, transparent 70%);
-  filter: blur(80px);
-}
-.glow-2 {
-  position: absolute;
-  bottom: -10%;
-  right: 10%;
-  width: 40%;
-  height: 40%;
-  background: radial-gradient(ellipse at 50% 100%, rgba(20, 184, 166, 0.02) 0%, transparent 70%);
-  filter: blur(80px);
-}
-
-/* Subtle pixel-perfect grid */
-.grid-bg {
-  position: fixed;
-  inset: 0;
-  background-image: 
-    linear-gradient(to right, rgba(255, 255, 255, 0.015) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.015) 1px, transparent 1px);
-  background-size: 40px 40px;
-  pointer-events: none;
-  z-index: -1;
-  mask-image: radial-gradient(circle at 50% 30%, black 30%, transparent 80%);
-  -webkit-mask-image: radial-gradient(circle at 50% 30%, black 30%, transparent 80%);
-}
+.glow-bg, .grid-bg { display: none; }
 
 /* ─── STAGE ─────────────────────────────── */
 #stage {
   position: relative;
-  min-height: 100vh;
+  height: 100vh;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 /* ─── SVG OVERLAY ────────────────────────── */
@@ -112,10 +75,9 @@ body {
 header {
   position: relative;
   z-index: 5;
-  max-width: 1060px;
   width: 100%;
   margin: 0 auto;
-  padding: 60px 52px 0;
+  padding: 48px 52px 0;
   display: flex;
   align-items: center;
   gap: 16px;
@@ -163,21 +125,25 @@ header {
 #diagram {
   position: relative;
   z-index: 3;
-  max-width: 1060px;
   width: 100%;
+  flex: 1;
   margin: 0 auto;
-  padding: 68px 52px 80px;
+  padding: 48px 100px 64px;
   display: flex;
-  flex-direction: column;
-  gap: 78px; /* High spacing for premium look and dynamic arcs */
+  flex-direction: row;
+  align-items: stretch;
+  gap: 80px;
 }
 
 .row {
   display: flex;
+  flex-direction: column;
   justify-content: center;
-  gap: 20px;
+  gap: 16px;
+  flex: 1;
+  min-width: 0;
   opacity: 0;
-  animation: slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: slideRight 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .row:nth-child(1) { animation-delay: 0.08s; }
@@ -186,9 +152,9 @@ header {
 .row:nth-child(4) { animation-delay: 0.38s; }
 .row:nth-child(5) { animation-delay: 0.48s; }
 
-@keyframes slideUp {
-  from { opacity: 0; transform: translateY(16px); }
-  to   { opacity: 1; transform: translateY(0); }
+@keyframes slideRight {
+  from { opacity: 0; transform: translateX(-16px); }
+  to   { opacity: 1; transform: translateX(0); }
 }
 
 @keyframes fadeIn {
@@ -198,17 +164,14 @@ header {
 /* ─── BOXES ──────────────────────────────── */
 .box {
   background: var(--surface);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 22px 26px 20px;
+  padding: 16px 16px 14px;
   position: relative;
   cursor: default;
+  width: 100%;
   transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-  box-shadow: 
-    inset 0 1px 1px 0 rgba(255, 255, 255, 0.03), 
-    0 4px 20px -2px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 2px 12px -2px rgba(0, 0, 0, 0.08);
 }
 
 .box::before {
@@ -226,12 +189,11 @@ header {
 
 .box:hover {
   border-color: var(--border-hover);
-  background: rgba(15, 15, 27, 0.6);
+  background: #fafafa;
   transform: translateY(-2px);
   box-shadow: 
-    inset 0 1px 1px 0 rgba(255, 255, 255, 0.05),
-    0 12px 30px -8px rgba(0, 0, 0, 0.6),
-    0 0 30px -5px var(--glow-c);
+    0 8px 24px -4px rgba(0, 0, 0, 0.12),
+    0 0 0 1px var(--border-hover);
 }
 
 .box:hover::before {
@@ -272,8 +234,8 @@ header {
   font-size: 9px;
   font-weight: 500;
   color: var(--text-muted);
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.08);
   padding: 2px 6px;
   border-radius: 4px;
   letter-spacing: 0.01em;
@@ -284,13 +246,6 @@ header {
   color: var(--text-muted);
   line-height: 1.65;
 }
-
-/* Widths */
-.w-580 { width: 580px; }
-.w-420 { width: 420px; }
-.w-268 { width: 268px; }
-.w-248 { width: 248px; }
-.w-218 { width: 218px; }
 
 /* Layer accent colors and glow vectors */
 .c-blue   { --c: var(--blue);   --glow-c: var(--blue-glow); }
@@ -303,10 +258,10 @@ header {
 footer {
   position: relative;
   z-index: 3;
-  max-width: 1060px;
   width: 100%;
   margin: auto auto 0;
-  padding: 0 52px 56px;
+  padding: 0 52px 40px;
+  border-top-color: rgba(0, 0, 0, 0.08);
   display: flex;
   align-items: center;
   gap: 24px;
@@ -342,7 +297,7 @@ footer {
 }
 
 /* ─── RESPONSIVE STYLING ─────────────────── */
-@media (max-width: 768px) {
+@media (max-width: 900px) {
   header {
     padding: 40px 24px 0;
     flex-direction: column;
@@ -355,17 +310,20 @@ footer {
     margin-left: 0;
   }
   #diagram {
+    flex-direction: column;
     padding: 40px 24px 48px;
-    gap: 48px;
+    gap: 32px;
   }
   .row {
-    flex-direction: column;
-    align-items: center;
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
     width: 100%;
-    gap: 20px;
+    gap: 16px;
   }
   .box {
-    width: 100% !important;
+    flex: 1;
+    min-width: 200px;
     max-width: 100%;
   }
   footer {
@@ -406,7 +364,7 @@ footer {
 
     <!-- Row 1: Browser -->
     <div class="row">
-      <div class="box w-580 c-blue" id="box-browser">
+      <div class="box c-blue" id="box-browser">
         <div class="box-name">
           Brukerens nettleser
           <div class="status-dot"></div>
@@ -428,7 +386,7 @@ footer {
 
     <!-- Row 2: API -->
     <div class="row">
-      <div class="box w-420 c-teal" id="box-api">
+      <div class="box c-teal" id="box-api">
         <div class="box-name">
           Starlette API
           <div class="status-dot"></div>
@@ -445,9 +403,9 @@ footer {
 
     <!-- Row 3: REST Routes + Session Manager (Positions switched to allow left side-bypass routing) -->
     <div class="row">
-      <div class="box w-268 c-teal" id="box-rest">
+      <div class="box c-teal" id="box-rest">
         <div class="box-name">
-          REST-ruter
+          REST-API
           <div class="status-dot"></div>
         </div>
         <div class="box-tech">
@@ -457,9 +415,9 @@ footer {
         </div>
         <div class="box-desc">Validerer adgangstokens · Leser og skriver brukere, sesjoner, chathistorikk og laggeometri direkte til PostgreSQL</div>
       </div>
-      <div class="box w-268 c-violet" id="box-session">
+      <div class="box c-violet" id="box-session">
         <div class="box-name">
-          Sesjonsbehandler
+          Session Manager
           <div class="status-dot"></div>
         </div>
         <div class="box-tech">
@@ -472,7 +430,7 @@ footer {
 
     <!-- Row 4: MCP -->
     <div class="row">
-      <div class="box w-580 c-orange" id="box-mcp">
+      <div class="box c-orange" id="box-mcp">
         <div class="box-name">
           MCP Servers
           <div class="status-dot"></div>
@@ -489,7 +447,7 @@ footer {
 
     <!-- Row 5: Data -->
     <div class="row">
-      <div class="box w-248 c-green" id="box-db">
+      <div class="box c-green" id="box-db">
         <div class="box-name">
           PostgreSQL + PostGIS
           <div class="status-dot"></div>
@@ -501,7 +459,7 @@ footer {
         </div>
         <div class="box-desc">Brukere · Chatsesjoner · Meldinger · Kartlag · Embeddings · GIS-geometri · Søkeindekser</div>
       </div>
-      <div class="box w-218 c-green" id="box-blob">
+      <div class="box c-green" id="box-blob">
         <div class="box-name">
           Azure Blob Storage
           <div class="status-dot"></div>
@@ -512,7 +470,7 @@ footer {
         </div>
         <div class="box-desc">PDF-kildedokumenter · Tekstutdrag (kildebevis) hentet ut per side</div>
       </div>
-      <div class="box w-248 c-green" id="box-search">
+      <div class="box c-green" id="box-search">
         <div class="box-name">
           Søketjeneste
           <div class="status-dot"></div>
@@ -597,67 +555,36 @@ function relRect(el) {
 
 function pathData(conn) {
   const fromEl = document.getElementById('box-' + conn.from);
-  const toEl = document.getElementById('box-' + conn.to);
-  
+  const toEl   = document.getElementById('box-' + conn.to);
   if (!fromEl || !toEl) return '';
-  
+
   const f = relRect(fromEl);
   const t = relRect(toEl);
 
-  const dy = t.cy - f.cy;
-  const dx = t.cx - f.cx;
+  // Horizontal layout: all connections exit the right edge and enter the left edge
+  const sx = f.right - EXTEND;
+  const sy = f.cy;
+  const ex = t.left  + EXTEND;
+  const ey = t.cy;
 
-  let sx, sy, ex, ey;
-
-  // Standard bottom-to-top exits
-  sx = f.cx;  sy = f.bottom - EXTEND;
-  ex = t.cx;  ey = t.top    + EXTEND;
-
-  // Custom premium bypass route for REST -> DB:
-  // Sweeps around the left of the centered MCP box on desktop to show direct bypass (Note 2)
-  if (conn.from === 'rest' && conn.to === 'db' && window.innerWidth > 768) {
+  // REST -> DB skips the MCP column. Arc above MCP if needed to avoid overlap.
+  if (conn.from === 'rest' && conn.to === 'db' && window.innerWidth > 900) {
     const mcpEl = document.getElementById('box-mcp');
     if (mcpEl) {
       const mcp = relRect(mcpEl);
-      // Bow X position pulled significantly wider to completely clear the MCP card corner
-      const bypassX = mcp.left - 120;
-      
-      // Control points to create a gorgeous, wide sweeping arc wrapping around the MCP box
-      const cy1 = sy + (ey - sy) * 0.35;
-      const cy2 = sy + (ey - sy) * 0.65;
-      
-      return `M${sx},${sy} C${bypassX},${cy1} ${bypassX},${cy2} ${ex},${ey}`;
+      const clearY = mcp.top - 28;
+      // Only arc upward if the straight S-curve would pass through MCP
+      if (Math.min(sy, ey) > clearY) {
+        const cx1 = sx + (ex - sx) * 0.35;
+        const cx2 = sx + (ex - sx) * 0.65;
+        return `M${sx},${sy} C${cx1},${clearY} ${cx2},${clearY} ${ex},${ey}`;
+      }
     }
   }
 
-  // Determine dominant direction — use vertical routing if dy is meaningful
-  if (Math.abs(dy) >= Math.abs(dx) * 0.4) {
-    // Exit bottom / enter top
-    if (dy >= 0) {
-      sx = f.cx;  sy = f.bottom - EXTEND;
-      ex = t.cx;  ey = t.top    + EXTEND;
-    } else {
-      sx = f.cx;  sy = f.top    + EXTEND;
-      ex = t.cx;  ey = t.bottom - EXTEND;
-    }
-  } else {
-    // Exit right / enter left
-    if (dx >= 0) {
-      sx = f.right  - EXTEND; sy = f.cy;
-      ex = t.left   + EXTEND; ey = t.cy;
-    } else {
-      sx = f.left   + EXTEND; sy = f.cy;
-      ex = t.right  - EXTEND; ey = t.cy;
-    }
-  }
-
-  // Beautiful Bezier curve control points for standard vertical connections
-  let cx1, cy1, cx2, cy2;
-  const my  = (sy + ey) / 2;
-  cx1 = sx;  cy1 = my;
-  cx2 = ex;  cy2 = my;
-
-  return `M${sx},${sy} C${cx1},${cy1} ${cx2},${cy2} ${ex},${ey}`;
+  // S-curve bezier — midpoint pulls horizontally for clean fanned connections
+  const mx = (sx + ex) / 2;
+  return `M${sx},${sy} C${mx},${sy} ${mx},${ey} ${ex},${ey}`;
 }
 
 // ─── BUILD SVG ───────────────────────────────────────────────────────
@@ -683,7 +610,7 @@ function build() {
 
   // Match height to stage
   const stage = document.getElementById('stage');
-  svg.setAttribute('height', stage.scrollHeight + 'px');
+  svg.setAttribute('height', stage.clientHeight + 'px');
 
   items = CONNECTIONS.map((conn) => {
     const d = pathData(conn);
