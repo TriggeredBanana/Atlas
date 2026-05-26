@@ -1,0 +1,774 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Atlas — Stack Architecture</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+
+:root {
+  --bg: #030306;
+  --surface: rgba(10, 10, 18, 0.4);
+  --border: rgba(255, 255, 255, 0.04);
+  --border-hover: rgba(255, 255, 255, 0.1);
+  --text: #f4f4f5; /* zinc-100 */
+  --text-muted: #a1a1aa; /* zinc-400 */
+  --muted: #52525b; /* zinc-600 */
+  --dim: #71717a; /* zinc-500 */
+
+  /* Premium pastel-toned accent colors */
+  --blue: #3b82f6;   /* Sky Indigo */
+  --blue-glow: rgba(59, 130, 246, 0.12);
+  
+  --teal: #14b8a6;   /* Sage Emerald */
+  --teal-glow: rgba(20, 184, 166, 0.12);
+  
+  --violet: #8b5cf6; /* Amethyst */
+  --violet-glow: rgba(139, 92, 246, 0.12);
+  
+  --orange: #f97316; /* Bronze Saffron */
+  --orange-glow: rgba(249, 115, 22, 0.12);
+  
+  --green: #10b981;  /* Emerald Mint */
+  --green-glow: rgba(16, 185, 129, 0.12);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+/* Atmospheric glows */
+.glow-bg {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+}
+.glow-1 {
+  position: absolute;
+  top: -10%;
+  left: 20%;
+  width: 60%;
+  height: 50%;
+  background: radial-gradient(ellipse at 50% 0%, rgba(99, 102, 241, 0.04) 0%, transparent 70%);
+  filter: blur(80px);
+}
+.glow-2 {
+  position: absolute;
+  bottom: -10%;
+  right: 10%;
+  width: 40%;
+  height: 40%;
+  background: radial-gradient(ellipse at 50% 100%, rgba(20, 184, 166, 0.02) 0%, transparent 70%);
+  filter: blur(80px);
+}
+
+/* Subtle pixel-perfect grid */
+.grid-bg {
+  position: fixed;
+  inset: 0;
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.015) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.015) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+  z-index: -1;
+  mask-image: radial-gradient(circle at 50% 30%, black 30%, transparent 80%);
+  -webkit-mask-image: radial-gradient(circle at 50% 30%, black 30%, transparent 80%);
+}
+
+/* ─── STAGE ─────────────────────────────── */
+#stage {
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ─── SVG OVERLAY ────────────────────────── */
+#svg-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0;
+  animation: fadeIn 0.6s ease-out 0.8s forwards;
+}
+
+/* ─── HEADER ─────────────────────────────── */
+header {
+  position: relative;
+  z-index: 5;
+  max-width: 1060px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 60px 52px 0;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.logo {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  transform: rotate(-15deg);
+  margin-right: 4px;
+}
+
+.logo-layer {
+  height: 3.5px;
+  border-radius: 2px;
+}
+
+.logo-blue   { background: var(--blue); width: 65%; box-shadow: 0 0 6px rgba(59, 130, 246, 0.4); }
+.logo-teal   { background: var(--teal); width: 85%; box-shadow: 0 0 6px rgba(20, 184, 166, 0.4); }
+.logo-violet { background: var(--violet); width: 100%; box-shadow: 0 0 6px rgba(139, 92, 246, 0.4); }
+
+.brand {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--text);
+}
+
+.brand-sub {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--dim);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border-left: 1px solid var(--border);
+  padding-left: 16px;
+  margin-left: 4px;
+}
+
+/* ─── DIAGRAM ────────────────────────────── */
+#diagram {
+  position: relative;
+  z-index: 3;
+  max-width: 1060px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 68px 52px 80px;
+  display: flex;
+  flex-direction: column;
+  gap: 78px; /* High spacing for premium look and dynamic arcs */
+}
+
+.row {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+  opacity: 0;
+  animation: slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.row:nth-child(1) { animation-delay: 0.08s; }
+.row:nth-child(2) { animation-delay: 0.18s; }
+.row:nth-child(3) { animation-delay: 0.28s; }
+.row:nth-child(4) { animation-delay: 0.38s; }
+.row:nth-child(5) { animation-delay: 0.48s; }
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeIn {
+  to { opacity: 1; }
+}
+
+/* ─── BOXES ──────────────────────────────── */
+.box {
+  background: var(--surface);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 22px 26px 20px;
+  position: relative;
+  cursor: default;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.03), 
+    0 4px 20px -2px rgba(0, 0, 0, 0.4);
+}
+
+.box::before {
+  content: '';
+  position: absolute;
+  top: -1px;
+  left: 24px;
+  width: 40px;
+  height: 2px;
+  border-radius: 0 0 2px 2px;
+  background: var(--c, var(--dim));
+  opacity: 0.8;
+  transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1), left 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.box:hover {
+  border-color: var(--border-hover);
+  background: rgba(15, 15, 27, 0.6);
+  transform: translateY(-2px);
+  box-shadow: 
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.05),
+    0 12px 30px -8px rgba(0, 0, 0, 0.6),
+    0 0 30px -5px var(--glow-c);
+}
+
+.box:hover::before {
+  width: 60px;
+  left: 14px;
+}
+
+.box-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 10px;
+  letter-spacing: -0.01em;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* Beautiful pulsing status dot inside each card name */
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--c);
+  box-shadow: 0 0 8px var(--c);
+  opacity: 0.65;
+}
+
+.box-tech {
+  margin-bottom: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tech-tag {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.01em;
+}
+
+.box-desc {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  line-height: 1.65;
+}
+
+/* Widths */
+.w-580 { width: 580px; }
+.w-420 { width: 420px; }
+.w-268 { width: 268px; }
+.w-248 { width: 248px; }
+.w-218 { width: 218px; }
+
+/* Layer accent colors and glow vectors */
+.c-blue   { --c: var(--blue);   --glow-c: var(--blue-glow); }
+.c-teal   { --c: var(--teal);   --glow-c: var(--teal-glow); }
+.c-violet { --c: var(--violet); --glow-c: var(--violet-glow); }
+.c-orange { --c: var(--orange); --glow-c: var(--orange-glow); }
+.c-green  { --c: var(--green);  --glow-c: var(--green-glow); }
+
+/* ─── FOOTER ─────────────────────────────── */
+footer {
+  position: relative;
+  z-index: 3;
+  max-width: 1060px;
+  width: 100%;
+  margin: auto auto 0;
+  padding: 0 52px 56px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--border);
+  padding-top: 24px;
+}
+
+.leg {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+
+.leg-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.foot-spacer { flex: 1; }
+
+.foot-note {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--dim);
+  letter-spacing: 0.02em;
+}
+
+/* ─── RESPONSIVE STYLING ─────────────────── */
+@media (max-width: 768px) {
+  header {
+    padding: 40px 24px 0;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .brand-sub {
+    border-left: none;
+    padding-left: 0;
+    margin-left: 0;
+  }
+  #diagram {
+    padding: 40px 24px 48px;
+    gap: 48px;
+  }
+  .row {
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    gap: 20px;
+  }
+  .box {
+    width: 100% !important;
+    max-width: 100%;
+  }
+  footer {
+    padding: 0 24px 40px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+  }
+  .foot-spacer {
+    display: none;
+  }
+}
+
+</style>
+</head>
+<body>
+
+<div class="glow-bg">
+  <div class="glow-1"></div>
+  <div class="glow-2"></div>
+</div>
+<div class="grid-bg"></div>
+
+<div id="stage">
+  <svg id="svg-layer"></svg>
+
+  <header>
+    <div class="logo">
+      <div class="logo-layer logo-blue"></div>
+      <div class="logo-layer logo-teal"></div>
+      <div class="logo-layer logo-violet"></div>
+    </div>
+    <span class="brand">Atlas</span>
+    <span class="brand-sub">Kjøretidsarkitektur</span>
+  </header>
+
+  <div id="diagram">
+
+    <!-- Row 1: Browser -->
+    <div class="row">
+      <div class="box w-580 c-blue" id="box-browser">
+        <div class="box-name">
+          Brukerens nettleser
+          <div class="status-dot"></div>
+        </div>
+        <div class="box-tech">
+          <span class="tech-tag">React 19</span>
+          <span class="tech-tag">Vite 7</span>
+          <span class="tech-tag">React Router</span>
+          <span class="tech-tag">React Markdown</span>
+          <span class="tech-tag">Leaflet</span>
+          <span class="tech-tag">React-Leaflet</span>
+          <span class="tech-tag">Leaflet-Geoman</span>
+          <span class="tech-tag">Lucide</span>
+          <span class="tech-tag">Font Awesome</span>
+        </div>
+        <div class="box-desc">Norgessentrert kartbasert arbeidsflate · Autentisert chat med strømming · Verktøyvelger og lagstyring · Eksport-pipeline for GeoJSON / PNG / PDF</div>
+      </div>
+    </div>
+
+    <!-- Row 2: API -->
+    <div class="row">
+      <div class="box w-420 c-teal" id="box-api">
+        <div class="box-name">
+          Starlette API
+          <div class="status-dot"></div>
+        </div>
+        <div class="box-tech">
+          <span class="tech-tag">Python</span>
+          <span class="tech-tag">Starlette</span>
+          <span class="tech-tag">Uvicorn</span>
+          <span class="tech-tag">python-dotenv</span>
+        </div>
+        <div class="box-desc">Composition root — monterer alle MCP-servere, initialiserer tilkoblingspoolen (DB pool), validerer tokens og håndterer orkestreringen for POST /api/chat</div>
+      </div>
+    </div>
+
+    <!-- Row 3: REST Routes + Session Manager (Positions switched to allow left side-bypass routing) -->
+    <div class="row">
+      <div class="box w-268 c-teal" id="box-rest">
+        <div class="box-name">
+          REST-ruter
+          <div class="status-dot"></div>
+        </div>
+        <div class="box-tech">
+          <span class="tech-tag">Autentisering</span>
+          <span class="tech-tag">Chatter</span>
+          <span class="tech-tag">Kartlag</span>
+        </div>
+        <div class="box-desc">Validerer adgangstokens · Leser og skriver brukere, sesjoner, chathistorikk og laggeometri direkte til PostgreSQL</div>
+      </div>
+      <div class="box w-268 c-violet" id="box-session">
+        <div class="box-name">
+          Sesjonsbehandler
+          <div class="status-dot"></div>
+        </div>
+        <div class="box-tech">
+          <span class="tech-tag">GitHub Copilot SDK</span>
+          <span class="tech-tag">Usage Tracker</span>
+        </div>
+        <div class="box-desc">Én aktiv Copilot-sesjon per chat · Injiserer tidligere database-meldinger i systemprompten · Eksponerer MCP-servere over HTTP</div>
+      </div>
+    </div>
+
+    <!-- Row 4: MCP -->
+    <div class="row">
+      <div class="box w-580 c-orange" id="box-mcp">
+        <div class="box-name">
+          MCP Servers
+          <div class="status-dot"></div>
+        </div>
+        <div class="box-tech">
+          <span class="tech-tag">FastMCP</span>
+          <span class="tech-tag">7 monterte servere</span>
+          <span class="tech-tag">GIS-verktøy</span>
+          <span class="tech-tag">osm2geojson</span>
+        </div>
+        <div class="box-desc">Orkestrert kjøring av verktøy · GIS- og geometrioppslag · Dokumenthenting fra Blob-lagring · Vektoroperasjoner · OSM-oppslag · Synkroniserer kartlag tilbake til nettleseren</div>
+      </div>
+    </div>
+
+    <!-- Row 5: Data -->
+    <div class="row">
+      <div class="box w-248 c-green" id="box-db">
+        <div class="box-name">
+          PostgreSQL + PostGIS
+          <div class="status-dot"></div>
+        </div>
+        <div class="box-tech">
+          <span class="tech-tag">psycopg-pool</span>
+          <span class="tech-tag">pgvector</span>
+          <span class="tech-tag">pg_trgm</span>
+        </div>
+        <div class="box-desc">Brukere · Chatsesjoner · Meldinger · Kartlag · Embeddings · GIS-geometri · Søkeindekser</div>
+      </div>
+      <div class="box w-218 c-green" id="box-blob">
+        <div class="box-name">
+          Azure Blob Storage
+          <div class="status-dot"></div>
+        </div>
+        <div class="box-tech">
+          <span class="tech-tag">Azure Storage SDK</span>
+          <span class="tech-tag">PyMuPDF</span>
+        </div>
+        <div class="box-desc">PDF-kildedokumenter · Tekstutdrag (kildebevis) hentet ut per side</div>
+      </div>
+      <div class="box w-248 c-green" id="box-search">
+        <div class="box-name">
+          Søketjeneste
+          <div class="status-dot"></div>
+        </div>
+        <div class="box-tech">
+          <span class="tech-tag">SQL fulltekst</span>
+          <span class="tech-tag">pgvector</span>
+          <span class="tech-tag">pg_trgm</span>
+          <span class="tech-tag">Embeddings</span>
+          <span class="tech-tag">Hybridrangering</span>
+        </div>
+        <div class="box-desc">Norsk fulltekstsøk · Semantisk søk · Trigram-basert fuzzy-søk · Hybridrangering</div>
+      </div>
+    </div>
+
+  </div>
+
+  <footer>
+    <div class="leg"><div class="leg-dot" style="background:var(--blue); box-shadow: 0 0 6px var(--blue);"></div>Frontend</div>
+    <div class="leg"><div class="leg-dot" style="background:var(--teal); box-shadow: 0 0 6px var(--teal);"></div>Backend-API</div>
+    <div class="leg"><div class="leg-dot" style="background:var(--violet); box-shadow: 0 0 6px var(--violet);"></div>AI-orkestrering</div>
+    <div class="leg"><div class="leg-dot" style="background:var(--orange); box-shadow: 0 0 6px var(--orange);"></div>MCP-verktøylag</div>
+    <div class="leg"><div class="leg-dot" style="background:var(--green); box-shadow: 0 0 6px var(--green);"></div>Data / Persistens</div>
+    <div class="foot-spacer"></div>
+    <div class="foot-note">7 MCP-servere &nbsp;·&nbsp; 8 tilkoblinger &nbsp;·&nbsp; React 19 + Python</div>
+  </footer>
+</div>
+
+<script>
+'use strict';
+
+// ─── CONFIG ──────────────────────────────────────────────────────────
+const EXTEND = 20;   // px path extends inside each box (hidden behind solid bg)
+const BALL_R = 4.0;  // ball radius in px
+const NS = 'http://www.w3.org/2000/svg';
+
+// Custom stage configuration for perfectly orchestrated top->bottom sequence
+const STAGE_DURATION = 1800; // 1.8 seconds per step - elegant, smooth speed
+const POST_CYCLE_PAUSE = 1200; // 1.2 second processing pause at the end
+const NUM_STAGES = 4;
+const TOTAL_DURATION = (STAGE_DURATION * NUM_STAGES) + POST_CYCLE_PAUSE;
+
+// Corrected colors to perfectly match the source box it comes out from
+const CONNECTIONS = [
+  // Stage 0: Browser to API (Comes out of browser: blue)
+  { from: 'browser', to: 'api',     color: 'var(--blue)',   stage: 0 },
+
+  // Stage 1: API splits to Session and REST (Comes out of API: teal)
+  { from: 'api',     to: 'session', color: 'var(--teal)',   stage: 1 },
+  { from: 'api',     to: 'rest',    color: 'var(--teal)',   stage: 1 },
+
+  // Stage 2: Session to MCP, and REST to DB (Comes out of Session: violet, REST: teal)
+  { from: 'session', to: 'mcp',     color: 'var(--violet)', stage: 2 },
+  { from: 'rest',    to: 'db',      color: 'var(--teal)',   stage: 2 },
+
+  // Stage 3: MCP splits to DB, Blob, and Search (Comes out of MCP: orange)
+  { from: 'mcp',     to: 'db',      color: 'var(--orange)', stage: 3 },
+  { from: 'mcp',     to: 'blob',    color: 'var(--orange)', stage: 3 },
+  { from: 'mcp',     to: 'search',  color: 'var(--orange)', stage: 3 },
+];
+
+// ─── EASING ──────────────────────────────────────────────────────────
+function easeInOutCubic(t) {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+// ─── GEOMETRY ────────────────────────────────────────────────────────
+function relRect(el) {
+  const er = el.getBoundingClientRect();
+  const sr = document.getElementById('stage').getBoundingClientRect();
+  return {
+    left:   er.left   - sr.left,
+    top:    er.top    - sr.top,
+    right:  er.right  - sr.left,
+    bottom: er.bottom - sr.top,
+    cx:     er.left   - sr.left + er.width  / 2,
+    cy:     er.top    - sr.top  + er.height / 2,
+    w:      er.width,
+    h:      er.height,
+  };
+}
+
+function pathData(conn) {
+  const fromEl = document.getElementById('box-' + conn.from);
+  const toEl = document.getElementById('box-' + conn.to);
+  
+  if (!fromEl || !toEl) return '';
+  
+  const f = relRect(fromEl);
+  const t = relRect(toEl);
+
+  const dy = t.cy - f.cy;
+  const dx = t.cx - f.cx;
+
+  let sx, sy, ex, ey;
+
+  // Standard bottom-to-top exits
+  sx = f.cx;  sy = f.bottom - EXTEND;
+  ex = t.cx;  ey = t.top    + EXTEND;
+
+  // Custom premium bypass route for REST -> DB:
+  // Sweeps around the left of the centered MCP box on desktop to show direct bypass (Note 2)
+  if (conn.from === 'rest' && conn.to === 'db' && window.innerWidth > 768) {
+    const mcpEl = document.getElementById('box-mcp');
+    if (mcpEl) {
+      const mcp = relRect(mcpEl);
+      // Bow X position pulled significantly wider to completely clear the MCP card corner
+      const bypassX = mcp.left - 120;
+      
+      // Control points to create a gorgeous, wide sweeping arc wrapping around the MCP box
+      const cy1 = sy + (ey - sy) * 0.35;
+      const cy2 = sy + (ey - sy) * 0.65;
+      
+      return `M${sx},${sy} C${bypassX},${cy1} ${bypassX},${cy2} ${ex},${ey}`;
+    }
+  }
+
+  // Determine dominant direction — use vertical routing if dy is meaningful
+  if (Math.abs(dy) >= Math.abs(dx) * 0.4) {
+    // Exit bottom / enter top
+    if (dy >= 0) {
+      sx = f.cx;  sy = f.bottom - EXTEND;
+      ex = t.cx;  ey = t.top    + EXTEND;
+    } else {
+      sx = f.cx;  sy = f.top    + EXTEND;
+      ex = t.cx;  ey = t.bottom - EXTEND;
+    }
+  } else {
+    // Exit right / enter left
+    if (dx >= 0) {
+      sx = f.right  - EXTEND; sy = f.cy;
+      ex = t.left   + EXTEND; ey = t.cy;
+    } else {
+      sx = f.left   + EXTEND; sy = f.cy;
+      ex = t.right  - EXTEND; ey = t.cy;
+    }
+  }
+
+  // Beautiful Bezier curve control points for standard vertical connections
+  let cx1, cy1, cx2, cy2;
+  const my  = (sy + ey) / 2;
+  cx1 = sx;  cy1 = my;
+  cx2 = ex;  cy2 = my;
+
+  return `M${sx},${sy} C${cx1},${cy1} ${cx2},${cy2} ${ex},${ey}`;
+}
+
+// ─── BUILD SVG ───────────────────────────────────────────────────────
+let items = [];
+let rafId = null;
+
+function build() {
+  const svg = document.getElementById('svg-layer');
+  if (!svg) return;
+  svg.innerHTML = '';
+
+  // Shared glow filter
+  const defs = document.createElementNS(NS, 'defs');
+  defs.innerHTML = `
+    <filter id="glow" x="-150%" y="-150%" width="400%" height="400%" color-interpolation-filters="sRGB">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="4.0" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>`;
+  svg.appendChild(defs);
+
+  // Match height to stage
+  const stage = document.getElementById('stage');
+  svg.setAttribute('height', stage.scrollHeight + 'px');
+
+  items = CONNECTIONS.map((conn) => {
+    const d = pathData(conn);
+    if (!d) return null;
+
+    // Static guide line
+    const line = document.createElementNS(NS, 'path');
+    line.setAttribute('d', d);
+    line.setAttribute('stroke', conn.color);
+    line.setAttribute('stroke-opacity', '0.08');
+    line.setAttribute('stroke-width', '1');
+    line.setAttribute('stroke-dasharray', '4 8');
+    line.setAttribute('fill', 'none');
+    line.style.transition = 'stroke-width 0.3s ease, stroke-opacity 0.3s ease';
+    svg.appendChild(line);
+
+    // Travelling ball
+    const ball = document.createElementNS(NS, 'circle');
+    ball.setAttribute('r', BALL_R);
+    ball.setAttribute('fill', conn.color);
+    ball.setAttribute('filter', 'url(#glow)');
+    ball.setAttribute('opacity', '0');
+    svg.appendChild(ball);
+
+    return { line, ball, stage: conn.stage, color: conn.color };
+  }).filter(x => x !== null);
+}
+
+// ─── ANIMATION TICK ──────────────────────────────────────────────────
+function tick(now) {
+  const cycleTime = now % TOTAL_DURATION;
+
+  items.forEach(item => {
+    const stageStart = item.stage * STAGE_DURATION;
+    const stageEnd = stageStart + STAGE_DURATION;
+
+    if (cycleTime >= stageStart && cycleTime < stageEnd) {
+      // Active stage: Travel along the path
+      const elapsed = cycleTime - stageStart;
+      const t_raw = elapsed / STAGE_DURATION;
+      const t = easeInOutCubic(t_raw);
+
+      const len = item.line.getTotalLength();
+      const pt = item.line.getPointAtLength(t * len);
+      
+      item.ball.setAttribute('cx', pt.x.toFixed(2));
+      item.ball.setAttribute('cy', pt.y.toFixed(2));
+      
+      // Premium fade-in at the start, fade-out at the end
+      let opacity = 1;
+      if (t_raw < 0.12) {
+        opacity = t_raw / 0.12; // smooth fade-in
+      } else if (t_raw > 0.88) {
+        opacity = (1 - t_raw) / 0.12; // smooth fade-out
+      }
+      item.ball.setAttribute('opacity', opacity.toFixed(2));
+      
+      // Guide path glows and thickens elegantly when active
+      item.line.setAttribute('stroke-opacity', (0.10 + 0.40 * opacity).toFixed(2));
+      item.line.setAttribute('stroke-width', (1 + 1.2 * opacity).toFixed(2));
+    } else {
+      // Inactive stages: fully invisible balls, dim guides
+      item.ball.setAttribute('opacity', '0');
+      item.line.setAttribute('stroke-opacity', '0.08');
+      item.line.setAttribute('stroke-width', '1');
+    }
+  });
+
+  rafId = requestAnimationFrame(tick);
+}
+
+function init() {
+  if (rafId) cancelAnimationFrame(rafId);
+  build();
+  rafId = requestAnimationFrame(tick);
+}
+
+// ─── BOOT ────────────────────────────────────────────────────────────
+document.fonts.ready.then(() => setTimeout(init, 100));
+
+let resizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(init, 150);
+});
+</script>
+</body>
+</html>
